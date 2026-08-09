@@ -5,10 +5,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y build-essential debhelper meson
+      - uses: actions/checkout@v7
+      - run: sudo apt-get update
+      - run: sudo apt-get install -y build-essential devscripts
+      - run: sudo mk-build-deps -i -r
       - run: dpkg-buildpackage -us -uc -b
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: deb-package
           path: ../alpha_*.deb
