@@ -9,6 +9,7 @@ import signal
 import logging
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Secret", "1")
@@ -29,7 +30,8 @@ class ClamGuardApplication(Adw.Application):
     def __init__(self, version: str = "0.1.0"):
         super().__init__(
             application_id="io.github.d3msudo.clamguard",
-            flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE | Gio.ApplicationFlags.HANDLES_OPEN,
+            flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE
+            | Gio.ApplicationFlags.HANDLES_OPEN,
         )
         self._version = version
         self._window = None
@@ -221,6 +223,7 @@ class ClamGuardApplication(Adw.Application):
             # il binario dedicato clamguard-daemon (src/daemon/cli.py),
             # invocato dagli unit systemd in data/systemd/*.service.
             from .daemon.updater_daemon import UpdaterDaemon
+
             UpdaterDaemon().run()
             return 0
 

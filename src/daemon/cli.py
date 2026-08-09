@@ -27,12 +27,14 @@ logger = logging.getLogger("clamguard.daemon.cli")
 
 def _run_update_signatures(args) -> int:
     from .updater_daemon import UpdaterDaemon
+
     UpdaterDaemon().run()
     return 0
 
 
 def _run_scheduled_scan(args) -> int:
     from .scheduler_daemon import SchedulerDaemon
+
     SchedulerDaemon().run(target=args.target)
     return 0
 
@@ -57,12 +59,15 @@ def main(argv=None) -> int:
         help="Esegue una scansione pianificata, poi esce",
     )
     p_scan.add_argument(
-        "target", nargs="?", default="/home",
+        "target",
+        nargs="?",
+        default="/home",
         help="Percorso da scansionare (default: /home)",
     )
     p_scan.set_defaults(func=_run_scheduled_scan)
 
     from ..cli.install_helper import register as register_install_helper
+
     register_install_helper(subparsers)
 
     args = parser.parse_args(argv)

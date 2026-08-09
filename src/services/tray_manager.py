@@ -18,6 +18,7 @@ import threading
 import time
 
 import gi
+
 gi.require_version("GLib", "2.0")
 from gi.repository import GLib
 
@@ -49,7 +50,9 @@ class TrayManager:
     def _get_service_path(self) -> str:
         """Risolve il percorso di tray_service.py, sia in albero sorgente
         (sviluppo) sia da pacchetto installato."""
-        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_service.py")
+        return os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "tray_service.py"
+        )
 
     def start(self):
         if self._running:
@@ -92,7 +95,11 @@ class TrayManager:
             self._process = None
 
     def _send_command(self, command: dict):
-        if not self._process or self._process.stdin is None or self._process.stdin.closed:
+        if (
+            not self._process
+            or self._process.stdin is None
+            or self._process.stdin.closed
+        ):
             return
         try:
             self._process.stdin.write(json.dumps(command) + "\n")
@@ -142,7 +149,9 @@ class TrayManager:
 
     def _maybe_respawn(self):
         now = time.time()
-        self._respawn_times = [t for t in self._respawn_times if now - t < RESPAWN_WINDOW_SEC]
+        self._respawn_times = [
+            t for t in self._respawn_times if now - t < RESPAWN_WINDOW_SEC
+        ]
         if len(self._respawn_times) >= MAX_RESPAWNS:
             logger.error(
                 f"Tray crashato {MAX_RESPAWNS} volte in {RESPAWN_WINDOW_SEC}s: "

@@ -2,6 +2,7 @@
 """
 ClamdService — Monitor stato clamd e controllo socket
 """
+
 import os
 import logging
 import subprocess
@@ -19,7 +20,8 @@ class ClamdService:
         try:
             result = subprocess.run(
                 ["clamdscan", "--ping", "1", "-c", self.socket_path],
-                capture_output=True, timeout=5
+                capture_output=True,
+                timeout=5,
             )
             return result.returncode == 0
         except Exception:
@@ -29,7 +31,8 @@ class ClamdService:
         try:
             subprocess.run(
                 ["clamdscan", "--reload", "-c", self.socket_path],
-                capture_output=True, timeout=10
+                capture_output=True,
+                timeout=10,
             )
             return True
         except Exception as e:

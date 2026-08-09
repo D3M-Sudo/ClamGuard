@@ -134,7 +134,9 @@ def _atomic_install(source_fd: int, destination: Path) -> None:
             raise
 
 
-def _open_and_validate_source(source: Path, expected_uid: int, staging_root: Path) -> int:
+def _open_and_validate_source(
+    source: Path, expected_uid: int, staging_root: Path
+) -> int:
     source_fd = os.open(str(source), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         validate_source_for_uid(source_fd, source, expected_uid, staging_root)
@@ -162,7 +164,9 @@ def _reload_clamd() -> None:
             ["systemctl", "reload-or-restart", unit], capture_output=True, text=True
         )
         if result.returncode != 0:
-            error = result.stderr.strip() or result.stdout.strip() or "errore sconosciuto"
+            error = (
+                result.stderr.strip() or result.stdout.strip() or "errore sconosciuto"
+            )
             print(f"Attenzione: reload di {unit} fallito: {error}", file=sys.stderr)
         return  # un solo unit clamd attivo alla volta, tipicamente
 
@@ -172,7 +176,10 @@ def main(argv=None) -> int:
 
     uid = _parse_pkexec_uid()
     if uid is None:
-        print("Errore: PKEXEC_UID assente o non valido; rifiuto di procedere.", file=sys.stderr)
+        print(
+            "Errore: PKEXEC_UID assente o non valido; rifiuto di procedere.",
+            file=sys.stderr,
+        )
         return EXIT_BAD_PKEXEC_UID
 
     expected_protocol = f"--protocol={PROTOCOL_VERSION}"
@@ -231,7 +238,7 @@ def main(argv=None) -> int:
             installed += 1
         _reload_clamd()
     except Exception as error:
-        for src_fd, _destination in validated[installed + 1:]:
+        for src_fd, _destination in validated[installed + 1 :]:
             try:
                 os.close(src_fd)
             except OSError:

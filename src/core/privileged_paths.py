@@ -31,13 +31,31 @@ ALLOWED_DEST_DIRS: tuple[Path, ...] = (Path("/var/lib/clamav"),)
 # automaticamente da DatabaseDirectory). Qualunque altra estensione viene
 # rifiutata: l'helper non è un file-copy generico.
 ALLOWED_SIGNATURE_EXTENSIONS: tuple[str, ...] = (
-    ".cvd", ".cld", ".cud",
-    ".hdb", ".hdu", ".hsb", ".hsu",
-    ".ndb", ".ndu",
-    ".ldb", ".ldu",
-    ".fp", ".pdb", ".gdb", ".wdb", ".mdb", ".mdu",
-    ".crb", ".zmd", ".rmd", ".cbc", ".cdb", ".cat",
-    ".yar", ".yara",
+    ".cvd",
+    ".cld",
+    ".cud",
+    ".hdb",
+    ".hdu",
+    ".hsb",
+    ".hsu",
+    ".ndb",
+    ".ndu",
+    ".ldb",
+    ".ldu",
+    ".fp",
+    ".pdb",
+    ".gdb",
+    ".wdb",
+    ".mdb",
+    ".mdu",
+    ".crb",
+    ".zmd",
+    ".rmd",
+    ".cbc",
+    ".cdb",
+    ".cat",
+    ".yar",
+    ".yara",
 )
 
 # Bump se il protocollo cambia forma: l'helper rifiuta ogni invocazione che
@@ -59,7 +77,9 @@ def staging_root_for_uid(uid: int) -> Path:
     partire dal database passwd (mai da $HOME, che dentro Flatpak punta a
     ~/.var/app/<id> e non coinciderebbe con quanto vede l'helper sull'host).
     """
-    return Path(pwd.getpwuid(uid).pw_dir) / ".cache" / "clamguard" / "privileged-staging"
+    return (
+        Path(pwd.getpwuid(uid).pw_dir) / ".cache" / "clamguard" / "privileged-staging"
+    )
 
 
 def validate_destination(destination: Path) -> None:
@@ -72,7 +92,9 @@ def validate_destination(destination: Path) -> None:
     try:
         resolved_parent = destination.parent.resolve(strict=False)
     except (OSError, RuntimeError) as exc:
-        raise ValueError(f"Impossibile risolvere la directory padre: {destination}") from exc
+        raise ValueError(
+            f"Impossibile risolvere la directory padre: {destination}"
+        ) from exc
 
     candidate = resolved_parent / destination.name
 
@@ -124,13 +146,17 @@ def validate_source_for_uid(
         )
 
     if st.st_mode & 0o022:
-        raise ValueError(f"Il file staged ha permessi non sicuri {oct(st.st_mode & 0o777)}: {source_path}")
+        raise ValueError(
+            f"Il file staged ha permessi non sicuri {oct(st.st_mode & 0o777)}: {source_path}"
+        )
 
     try:
         resolved_source = source_path.resolve(strict=True)
         resolved_staging = staging_root.resolve(strict=True)
     except (OSError, RuntimeError) as exc:
-        raise ValueError(f"Impossibile risolvere il path staged: {source_path}") from exc
+        raise ValueError(
+            f"Impossibile risolvere il path staged: {source_path}"
+        ) from exc
 
     try:
         resolved_source.relative_to(resolved_staging)
@@ -163,4 +189,6 @@ def verify_staging_root(staging_root: Path, expected_uid: int) -> None:
         )
 
     if st.st_mode & 0o077:
-        raise ValueError(f"Lo staging root ha permessi non sicuri {oct(st.st_mode & 0o777)}: {staging_root}")
+        raise ValueError(
+            f"Lo staging root ha permessi non sicuri {oct(st.st_mode & 0o777)}: {staging_root}"
+        )

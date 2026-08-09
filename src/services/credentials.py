@@ -2,8 +2,10 @@
 """
 CredentialsService — Secure API key storage via SecretService / libsecret
 """
+
 import logging
 import gi
+
 gi.require_version("Secret", "1")
 from gi.repository import Secret
 
@@ -14,7 +16,7 @@ class CredentialsService:
     SCHEMA = Secret.Schema.new(
         "io.github.d3msudo.clamguard.VirusTotal",
         Secret.SchemaFlags.NONE,
-        {"api": Secret.SchemaAttributeType.STRING}
+        {"api": Secret.SchemaAttributeType.STRING},
     )
 
     def store_vt_key(self, api_key: str) -> bool:
@@ -34,9 +36,10 @@ class CredentialsService:
 
     def get_vt_key(self) -> str:
         try:
-            return Secret.password_lookup_sync(
-                self.SCHEMA, {"api": "virustotal"}, None
-            ) or ""
+            return (
+                Secret.password_lookup_sync(self.SCHEMA, {"api": "virustotal"}, None)
+                or ""
+            )
         except Exception as e:
             logger.error(f"Failed to retrieve key: {e}")
             return ""

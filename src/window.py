@@ -9,6 +9,7 @@ import logging
 import threading
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import GLib, Gio, Gtk, Adw
@@ -69,7 +70,9 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._history_view = self._build_history_view()
         self._virustotal_view = self._build_placeholder_view("VirusTotal", "globe")
         self._database_view = self._build_database_view()
-        self._settings_view = self._build_placeholder_view("Settings", "preferences-system")
+        self._settings_view = self._build_placeholder_view(
+            "Settings", "preferences-system"
+        )
 
         self._view_stack.add_titled_with_icon(
             self._scanner_view, "scanner", "Dashboard", "security-high"
@@ -194,7 +197,9 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._big_status_title.add_css_class("title-1")
         left.append(self._big_status_title)
 
-        self._big_status_desc = Gtk.Label(label="Real-time scanning is active and virus definitions are up to date.")
+        self._big_status_desc = Gtk.Label(
+            label="Real-time scanning is active and virus definitions are up to date."
+        )
         self._big_status_desc.add_css_class("body")
         self._big_status_desc.set_wrap(True)
         self._big_status_desc.set_xalign(0)
@@ -236,12 +241,42 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         grid.set_column_homogeneous(True)
 
         actions = [
-            ("System Scan", "Deep scan of your entire system", "drive-harddisk", self._on_system_scan),
-            ("Custom Scan", "Scan specific files or folders", "folder-open", self._on_custom_scan),
-            ("Quarantine", "Manage isolated threats", "folder-quarantine", self._on_quarantine_click),
-            ("VirusTotal", "Check files with 70+ engines", "globe", self._on_virustotal_click),
-            ("Update DB", "Update virus definitions", "software-update-available", self._on_update_db),
-            ("Settings", "Configure protection options", "preferences-system", self._on_settings_click),
+            (
+                "System Scan",
+                "Deep scan of your entire system",
+                "drive-harddisk",
+                self._on_system_scan,
+            ),
+            (
+                "Custom Scan",
+                "Scan specific files or folders",
+                "folder-open",
+                self._on_custom_scan,
+            ),
+            (
+                "Quarantine",
+                "Manage isolated threats",
+                "folder-quarantine",
+                self._on_quarantine_click,
+            ),
+            (
+                "VirusTotal",
+                "Check files with 70+ engines",
+                "globe",
+                self._on_virustotal_click,
+            ),
+            (
+                "Update DB",
+                "Update virus definitions",
+                "software-update-available",
+                self._on_update_db,
+            ),
+            (
+                "Settings",
+                "Configure protection options",
+                "preferences-system",
+                self._on_settings_click,
+            ),
         ]
 
         for i, (title, desc, icon, callback) in enumerate(actions):
@@ -300,7 +335,9 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         # Placeholder row
         placeholder = Adw.ActionRow()
         placeholder.set_title("No recent threats detected")
-        placeholder.set_subtitle("Your system is clean. Run a scan to check for threats.")
+        placeholder.set_subtitle(
+            "Your system is clean. Run a scan to check for threats."
+        )
         placeholder.set_icon_name("emblem-ok-symbolic")
         self._activity_list.append(placeholder)
 
@@ -392,14 +429,18 @@ class ClamGuardWindow(Adw.ApplicationWindow):
 
     def _on_restore_clicked(self, button, entry_id):
         success = self._quarantine.restore(entry_id)
-        self._show_toast("File restored" if success else "Restore failed — check logs",
-                          Adw.ToastPriority.NORMAL if success else Adw.ToastPriority.HIGH)
+        self._show_toast(
+            "File restored" if success else "Restore failed — check logs",
+            Adw.ToastPriority.NORMAL if success else Adw.ToastPriority.HIGH,
+        )
         self._refresh_quarantine_view()
 
     def _on_delete_clicked(self, button, entry_id):
         success = self._quarantine.delete(entry_id)
-        self._show_toast("File deleted" if success else "Deletion failed",
-                          Adw.ToastPriority.NORMAL if success else Adw.ToastPriority.HIGH)
+        self._show_toast(
+            "File deleted" if success else "Deletion failed",
+            Adw.ToastPriority.NORMAL if success else Adw.ToastPriority.HIGH,
+        )
         self._refresh_quarantine_view()
 
     def _build_history_view(self):
@@ -450,8 +491,12 @@ class ClamGuardWindow(Adw.ApplicationWindow):
                 status = f"{record.files_scanned} files, {record.threats_found} threats"
             else:
                 status = "In progress…"
-            row.set_subtitle(f"{record.start_time.strftime('%Y-%m-%d %H:%M')} · {status}")
-            row.set_icon_name("dialog-warning" if record.threats_found else "emblem-ok-symbolic")
+            row.set_subtitle(
+                f"{record.start_time.strftime('%Y-%m-%d %H:%M')} · {status}"
+            )
+            row.set_icon_name(
+                "dialog-warning" if record.threats_found else "emblem-ok-symbolic"
+            )
             self._history_list.append(row)
 
     def _build_database_view(self):
@@ -470,8 +515,8 @@ class ClamGuardWindow(Adw.ApplicationWindow):
 
         info = Gtk.Label(
             label="Downloaded signatures are used automatically by local scans. "
-                  "Installing them into the system database also makes them "
-                  "available to a running clamd daemon (requires admin rights)."
+            "Installing them into the system database also makes them "
+            "available to a running clamd daemon (requires admin rights)."
         )
         info.set_wrap(True)
         info.set_xalign(0)
@@ -517,13 +562,17 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             row.set_title(p["name"])
             last = p["last_download"] or "never"
             row.set_subtitle(f"{p['filename']} · last updated: {last}")
-            row.set_icon_name("emblem-ok-symbolic" if p["enabled"] else "dialog-warning")
+            row.set_icon_name(
+                "emblem-ok-symbolic" if p["enabled"] else "dialog-warning"
+            )
             self._database_list.append(row)
 
     def _on_install_signatures_clicked(self, button):
         button.set_sensitive(False)
         self._show_toast("Preparing signatures for system install…")
-        thread = threading.Thread(target=self._run_install_signatures_thread, daemon=True)
+        thread = threading.Thread(
+            target=self._run_install_signatures_thread, daemon=True
+        )
         thread.start()
 
     def _run_install_signatures_thread(self):
@@ -678,7 +727,8 @@ class ClamGuardWindow(Adw.ApplicationWindow):
     def _on_quarantine_prompt_response(self, dialog, response, infected):
         if response == "quarantine":
             count = sum(
-                1 for r in infected
+                1
+                for r in infected
                 if self._quarantine.quarantine(r.path, virus_name=r.virus_name)
             )
             self._show_toast(f"{count} file(s) quarantined")
@@ -720,17 +770,29 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             protected = clamd_ok and db_age < 86400 * 3  # 3 days
 
             if protected:
-                self._set_status("protected", "Protected", "security-high",
-                                  "Your device is protected",
-                                  "Real-time scanning is active and virus definitions are up to date.")
+                self._set_status(
+                    "protected",
+                    "Protected",
+                    "security-high",
+                    "Your device is protected",
+                    "Real-time scanning is active and virus definitions are up to date.",
+                )
             elif clamd_ok:
-                self._set_status("warning", "Outdated", "software-update-available",
-                                  "Definitions are outdated",
-                                  "Your virus definitions are older than 3 days. Please update.")
+                self._set_status(
+                    "warning",
+                    "Outdated",
+                    "software-update-available",
+                    "Definitions are outdated",
+                    "Your virus definitions are older than 3 days. Please update.",
+                )
             else:
-                self._set_status("critical", "At Risk", "dialog-warning",
-                                  "Your device is at risk",
-                                  "ClamAV daemon is not running. Real-time protection is disabled.")
+                self._set_status(
+                    "critical",
+                    "At Risk",
+                    "dialog-warning",
+                    "Your device is at risk",
+                    "ClamAV daemon is not running. Real-time protection is disabled.",
+                )
 
             # Update last update label
             if db_age < 3600:
@@ -749,7 +811,11 @@ class ClamGuardWindow(Adw.ApplicationWindow):
     def _set_status(self, level, badge_text, icon_name, title, desc):
         """Update status widgets with given level."""
         # Remove old classes
-        for cls in ["status-badge-protected", "status-badge-warning", "status-badge-critical"]:
+        for cls in [
+            "status-badge-protected",
+            "status-badge-warning",
+            "status-badge-critical",
+        ]:
             self._status_label.remove_css_class(cls)
             self._big_status_title.remove_css_class(cls)
 

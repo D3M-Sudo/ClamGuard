@@ -2,6 +2,7 @@
 """
 UpdaterDaemon — Background daemon for third-party signature updates
 """
+
 import logging
 from ..core.third_party_db import ThirdPartyDBManager
 from ..core.freshclam import FreshclamManager

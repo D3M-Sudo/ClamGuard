@@ -19,8 +19,14 @@ logger = logging.getLogger("alpha.clamav")
 
 class ScanResult:
     """Represents a single file scan result."""
-    def __init__(self, path: str, infected: bool, virus_name: Optional[str] = None,
-                 error: Optional[str] = None):
+
+    def __init__(
+        self,
+        path: str,
+        infected: bool,
+        virus_name: Optional[str] = None,
+        error: Optional[str] = None,
+    ):
         self.path = path
         self.infected = infected
         self.virus_name = virus_name
@@ -62,8 +68,11 @@ class ClamAVScanner:
     CLAMD_SOCKET = "/run/clamav/clamd.ctl"
     CLAMD_ALT = "/var/run/clamav/clamd.ctl"
 
-    def __init__(self, socket_path: Optional[str] = None,
-                 extra_db_dirs: Optional[List[str]] = None):
+    def __init__(
+        self,
+        socket_path: Optional[str] = None,
+        extra_db_dirs: Optional[List[str]] = None,
+    ):
         self.socket_path = socket_path or self._find_socket()
         self._use_clamd = self._detect_clamd()
         # Directory con firme di terze parti (ThirdPartyDBManager). Usate
@@ -85,7 +94,10 @@ class ClamAVScanner:
         return self.CLAMD_SOCKET
 
     def _detect_clamd(self) -> bool:
-        if not (os.path.exists(self.socket_path) and os.access(self.socket_path, os.R_OK | os.W_OK)):
+        if not (
+            os.path.exists(self.socket_path)
+            and os.access(self.socket_path, os.R_OK | os.W_OK)
+        ):
             return False
         try:
             owner_uid = os.stat(self.socket_path).st_uid
@@ -96,16 +108,20 @@ class ClamAVScanner:
         # vero clamd di sistema, anche se il path coincide nominalmente.
         return owner_uid < 1000
 
-    async def scan_paths(self, paths: List[str],
-                         progress_callback: Optional[Callable[[str, int, int], None]] = None,
-                         chunk_size: int = 100) -> List[ScanResult]:
+    async def scan_paths(
+        self,
+        paths: List[str],
+        progress_callback: Optional[Callable[[str, int, int], None]] = None,
+        chunk_size: int = 100,
+    ) -> List[ScanResult]:
         """Scan multiple paths with async I/O and progress reporting."""
         if self._use_clamd:
             return await self._scan_clamd(paths, progress_callback)
         return await self._scan_clamscan(paths, progress_callback, chunk_size)
 
-    async def _scan_clamd(self, paths: List[str],
-                          progress_callback: Optional[Callable] = None) -> List[ScanResult]:
+    async def _scan_clamd(
+        self, paths: List[str], progress_callback: Optional[Callable] = None
+    ) -> List[ScanResult]:
         """Stream scan via clamd UNIX socket using asyncio."""
         results = []
         total = len(paths)
@@ -145,20 +161,25 @@ class ClamAVScanner:
         else:
             return ScanResult(path, False, error=response)
 
-    async def _scan_clamscan(self, paths: List[str],
-                             progress_callback: Optional[Callable],
-                             chunk_size: int = 100) -> List[ScanResult]:
+    async def _scan_clamscan(
+        self,
+        paths: List[str],
+        progress_callback: Optional[Callable],
+        chunk_size: int = 100,
+    ) -> List[ScanResult]:
         """Fallback async clamscan with chunked execution."""
         results = []
         total = len(paths)
 
         for idx in range(0, total, chunk_size):
-            chunk = paths[idx:idx + chunk_size]
+            chunk = paths[idx : idx + chunk_size]
             db_args = []
             for extra_dir in self.extra_db_dirs:
                 if os.path.isdir(extra_dir):
                     db_args += ["--database", extra_dir]
-            cmd = ["clamscan", "--infected", "--no-summary", "--stdout"] + db_args + chunk
+            cmd = (
+                ["clamscan", "--infected", "--no-summary", "--stdout"] + db_args + chunk
+            )
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -215,8 +236,7 @@ class ClamAVScanner:
         """Return ClamAV database version string."""
         try:
             result = subprocess.run(
-                ["clamscan", "--version"],
-                capture_output=True, text=True, timeout=10
+                ["clamscan", "--version"], capture_output=True, text=True, timeout=10
             )
             return result.stdout.strip()
         except Exception:

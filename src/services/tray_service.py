@@ -54,7 +54,9 @@ except (ValueError, ImportError) as e:
     DBUS_AVAILABLE = False
 
 if not DBUS_AVAILABLE:
-    sys.stdout.write(json.dumps({"event": "error", "message": "GIO D-Bus not available"}) + "\n")
+    sys.stdout.write(
+        json.dumps({"event": "error", "message": "GIO D-Bus not available"}) + "\n"
+    )
     sys.stdout.flush()
     sys.exit(1)
 
@@ -180,7 +182,8 @@ class TrayService:
 
         item_id = 1
 
-        toggle = Dbusmenu.Menuitem.new_with_id(item_id); item_id += 1
+        toggle = Dbusmenu.Menuitem.new_with_id(item_id)
+        item_id += 1
         toggle.property_set(
             Dbusmenu.MENUITEM_PROP_LABEL,
             "Hide Window" if self._window_visible else "Show Window",
@@ -188,25 +191,30 @@ class TrayService:
         toggle.connect("item-activated", lambda *_: self._send_action("toggle_window"))
         self._menu_root.child_append(toggle)
 
-        sep = Dbusmenu.Menuitem.new_with_id(item_id); item_id += 1
+        sep = Dbusmenu.Menuitem.new_with_id(item_id)
+        item_id += 1
         sep.property_set(Dbusmenu.MENUITEM_PROP_TYPE, "separator")
         self._menu_root.child_append(sep)
 
-        quick_scan = Dbusmenu.Menuitem.new_with_id(item_id); item_id += 1
+        quick_scan = Dbusmenu.Menuitem.new_with_id(item_id)
+        item_id += 1
         quick_scan.property_set(Dbusmenu.MENUITEM_PROP_LABEL, "Quick Scan")
         quick_scan.connect("item-activated", lambda *_: self._send_action("quick_scan"))
         self._menu_root.child_append(quick_scan)
 
-        update_db = Dbusmenu.Menuitem.new_with_id(item_id); item_id += 1
+        update_db = Dbusmenu.Menuitem.new_with_id(item_id)
+        item_id += 1
         update_db.property_set(Dbusmenu.MENUITEM_PROP_LABEL, "Update Definitions")
         update_db.connect("item-activated", lambda *_: self._send_action("update"))
         self._menu_root.child_append(update_db)
 
-        sep2 = Dbusmenu.Menuitem.new_with_id(item_id); item_id += 1
+        sep2 = Dbusmenu.Menuitem.new_with_id(item_id)
+        item_id += 1
         sep2.property_set(Dbusmenu.MENUITEM_PROP_TYPE, "separator")
         self._menu_root.child_append(sep2)
 
-        quit_item = Dbusmenu.Menuitem.new_with_id(item_id); item_id += 1
+        quit_item = Dbusmenu.Menuitem.new_with_id(item_id)
+        item_id += 1
         quit_item.property_set(Dbusmenu.MENUITEM_PROP_LABEL, "Quit")
         quit_item.connect("item-activated", lambda *_: self._send_action("quit"))
         self._menu_root.child_append(quit_item)
@@ -286,7 +294,11 @@ class TrayService:
             self._register_with_watcher(next_index)
 
     def _schedule_watcher_retry(self):
-        if not self._running or self._watcher_registered or self._watcher_retry_source_id:
+        if (
+            not self._running
+            or self._watcher_registered
+            or self._watcher_retry_source_id
+        ):
             return
         self._watcher_retry_source_id = GLib.timeout_add(
             self.WATCHER_RETRY_DELAY_MS, self._retry_watcher
@@ -298,8 +310,16 @@ class TrayService:
         self._register_with_watcher()
         return False
 
-    def _handle_method_call(self, connection, sender, object_path, interface_name,
-                             method_name, parameters, invocation):
+    def _handle_method_call(
+        self,
+        connection,
+        sender,
+        object_path,
+        interface_name,
+        method_name,
+        parameters,
+        invocation,
+    ):
         if method_name == "Activate":
             self._send_action("toggle_window")
             invocation.return_value(None)
@@ -309,10 +329,13 @@ class TrayService:
             invocation.return_value(None)
         else:
             invocation.return_dbus_error(
-                "org.freedesktop.DBus.Error.UnknownMethod", f"Unknown method: {method_name}"
+                "org.freedesktop.DBus.Error.UnknownMethod",
+                f"Unknown method: {method_name}",
             )
 
-    def _handle_get_property(self, connection, sender, object_path, interface_name, property_name):
+    def _handle_get_property(
+        self, connection, sender, object_path, interface_name, property_name
+    ):
         if property_name == "Category":
             return GLib.Variant("s", "ApplicationStatus")
         if property_name == "Id":
@@ -334,7 +357,9 @@ class TrayService:
         if property_name == "AttentionIconPixmap":
             return GLib.Variant("a(iiay)", [])
         if property_name == "ToolTip":
-            return GLib.Variant("(sa(iiay)ss)", ("", [], "ClamGuard", self._get_tooltip()))
+            return GLib.Variant(
+                "(sa(iiay)ss)", ("", [], "ClamGuard", self._get_tooltip())
+            )
         if property_name == "ItemIsMenu":
             return GLib.Variant("b", False)
         if property_name == "Menu":
@@ -367,7 +392,9 @@ class TrayService:
         if action == "update_status":
             GLib.idle_add(self.update_status, command.get("status", "protected"))
         elif action == "update_window_visible":
-            GLib.idle_add(self.update_window_visible, bool(command.get("visible", True)))
+            GLib.idle_add(
+                self.update_window_visible, bool(command.get("visible", True))
+            )
         elif action == "quit":
             GLib.idle_add(self._quit)
         elif action == "ping":
@@ -381,7 +408,9 @@ class TrayService:
                 if not self._running:
                     break
                 if len(line) > self._MAX_IPC_LINE_BYTES:
-                    logger.error(f"Riga IPC di {len(line)} byte scartata (limite {self._MAX_IPC_LINE_BYTES})")
+                    logger.error(
+                        f"Riga IPC di {len(line)} byte scartata (limite {self._MAX_IPC_LINE_BYTES})"
+                    )
                     continue
                 line = line.strip()
                 if not line:

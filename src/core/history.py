@@ -16,9 +16,17 @@ logger = logging.getLogger("alpha.history")
 
 
 class ScanRecord:
-    def __init__(self, record_id: int, scan_type: str, target: str,
-                 start_time: datetime, end_time: Optional[datetime],
-                 files_scanned: int, threats_found: int, log_path: Optional[str]):
+    def __init__(
+        self,
+        record_id: int,
+        scan_type: str,
+        target: str,
+        start_time: datetime,
+        end_time: Optional[datetime],
+        files_scanned: int,
+        threats_found: int,
+        log_path: Optional[str],
+    ):
         self.id = record_id
         self.scan_type = scan_type
         self.target = target
@@ -70,28 +78,53 @@ class HistoryManager:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(
                 "INSERT INTO scans (scan_type, target, start_time) VALUES (?, ?, ?)",
-                (scan_type, target, datetime.now().timestamp())
+                (scan_type, target, datetime.now().timestamp()),
             )
             if cursor.lastrowid is None:
                 raise RuntimeError("INSERT in scans non ha prodotto un lastrowid")
             return cursor.lastrowid
 
-    def finish_scan(self, scan_id: int, files_scanned: int, threats_found: int,
-                    results: list, log_path: Optional[str] = None):
+    def finish_scan(
+        self,
+        scan_id: int,
+        files_scanned: int,
+        threats_found: int,
+        results: list,
+        log_path: Optional[str] = None,
+    ):
         """Record scan completion."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 "UPDATE scans SET end_time=?, files_scanned=?, threats_found=?, log_path=?, results_json=? WHERE id=?",
-                (datetime.now().timestamp(), files_scanned, threats_found, log_path,
-                 json.dumps(results), scan_id)
+                (
+                    datetime.now().timestamp(),
+                    files_scanned,
+                    threats_found,
+                    log_path,
+                    json.dumps(results),
+                    scan_id,
+                ),
             )
 
-    def add_threat(self, scan_id: int, file_path: str, virus_name: str,
-                   file_hash: Optional[str], action: str = "detected"):
+    def add_threat(
+        self,
+        scan_id: int,
+        file_path: str,
+        virus_name: str,
+        file_hash: Optional[str],
+        action: str = "detected",
+    ):
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 "INSERT INTO threats (scan_id, file_path, virus_name, file_hash, action, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-                (scan_id, file_path, virus_name, file_hash, action, datetime.now().timestamp())
+                (
+                    scan_id,
+                    file_path,
+                    virus_name,
+                    file_hash,
+                    action,
+                    datetime.now().timestamp(),
+                ),
             )
 
     def get_recent_scans(self, limit: int = 50) -> List[ScanRecord]:
@@ -100,23 +133,28 @@ class HistoryManager:
             for row in conn.execute(
                 "SELECT * FROM scans ORDER BY start_time DESC LIMIT ?", (limit,)
             ):
-                records.append(ScanRecord(
-                    record_id=row[0],
-                    scan_type=row[1],
-                    target=row[2],
-                    start_time=datetime.fromtimestamp(row[3]),
-                    end_time=datetime.fromtimestamp(row[4]) if row[4] else None,
-                    files_scanned=row[5],
-                    threats_found=row[6],
-                    log_path=row[7],
-                ))
+                records.append(
+                    ScanRecord(
+                        record_id=row[0],
+                        scan_type=row[1],
+                        target=row[2],
+                        start_time=datetime.fromtimestamp(row[3]),
+                        end_time=datetime.fromtimestamp(row[4]) if row[4] else None,
+                        files_scanned=row[5],
+                        threats_found=row[6],
+                        log_path=row[7],
+                    )
+                )
         return records
 
     def export_csv(self, path: str, scan_id: Optional[int] = None):
         import csv
+
         with sqlite3.connect(self.db_path) as conn, open(path, "w", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(["ID", "Type", "Target", "Start", "End", "Files", "Threats"])
+            writer.writerow(
+                ["ID", "Type", "Target", "Start", "End", "Files", "Threats"]
+            )
             query = "SELECT * FROM scans"
             params = ()
             if scan_id:

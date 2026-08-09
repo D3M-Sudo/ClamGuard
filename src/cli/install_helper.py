@@ -177,7 +177,10 @@ def install_privileged_helper(prefix: str = "/") -> "tuple[bool, str]":
         _ORIGINAL_IMPORT, _REWRITTEN_IMPORT
     )
     if "from ..core" in apply_content or "\nfrom .core" in apply_content:
-        return (False, "Import relativo inatteso rimasto nel sorgente dell'helper; interrotto.")
+        return (
+            False,
+            "Import relativo inatteso rimasto nel sorgente dell'helper; interrotto.",
+        )
 
     root = Path(prefix)
     lib_dir = root / RUNTIME_LIB_DIR.lstrip("/")

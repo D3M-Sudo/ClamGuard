@@ -21,9 +21,16 @@ logger = logging.getLogger("alpha.quarantine")
 
 
 class QuarantineEntry:
-    def __init__(self, entry_id: int, original_path: str, quarantine_path: str,
-                 file_hash: str, virus_name: Optional[str], timestamp: datetime,
-                 encrypted: bool = False):
+    def __init__(
+        self,
+        entry_id: int,
+        original_path: str,
+        quarantine_path: str,
+        file_hash: str,
+        virus_name: Optional[str],
+        timestamp: datetime,
+        encrypted: bool = False,
+    ):
         self.id = entry_id
         self.original_path = original_path
         self.quarantine_path = quarantine_path
@@ -36,8 +43,9 @@ class QuarantineEntry:
 class QuarantineManager:
     """Manages quarantined files with integrity verification and optional encryption."""
 
-    def __init__(self, quarantine_dir: Optional[str] = None,
-                 db_path: Optional[str] = None):
+    def __init__(
+        self, quarantine_dir: Optional[str] = None, db_path: Optional[str] = None
+    ):
         self.quarantine_dir = quarantine_dir or paths.app_data_dir("quarantine")
         self.db_path = db_path or paths.app_data_dir("quarantine.db")
         self._cipher = None
@@ -90,7 +98,9 @@ class QuarantineManager:
             conn.execute("INSERT INTO kdf_salt (id, salt) VALUES (1, ?)", (salt,))
             return salt
 
-    def set_encryption(self, password: Optional[str] = None, key: Optional[bytes] = None):
+    def set_encryption(
+        self, password: Optional[str] = None, key: Optional[bytes] = None
+    ):
         """Enable AES-256-GCM encryption via Fernet."""
         if key:
             self._cipher = Fernet(key)
@@ -140,8 +150,14 @@ class QuarantineManager:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.execute(
                     "INSERT INTO quarantine VALUES (NULL, ?, ?, ?, ?, ?, ?, 0)",
-                    (str(src), q_path, file_hash, virus_name,
-                     datetime.now().timestamp(), int(encrypted))
+                    (
+                        str(src),
+                        q_path,
+                        file_hash,
+                        virus_name,
+                        datetime.now().timestamp(),
+                        int(encrypted),
+                    ),
                 )
                 entry_id = cursor.lastrowid
 
@@ -156,14 +172,20 @@ class QuarantineManager:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 row = conn.execute(
-                    "SELECT * FROM quarantine WHERE id=? AND restored=0",
-                    (entry_id,)
+                    "SELECT * FROM quarantine WHERE id=? AND restored=0", (entry_id,)
                 ).fetchone()
                 if not row:
-                    logger.error(f"Quarantine entry {entry_id} not found or already restored")
+                    logger.error(
+                        f"Quarantine entry {entry_id} not found or already restored"
+                    )
                     return False
 
-                original_path, q_path, stored_hash, encrypted = row[1], row[2], row[3], row[6]
+                original_path, q_path, stored_hash, encrypted = (
+                    row[1],
+                    row[2],
+                    row[3],
+                    row[6],
+                )
                 dest = destination or original_path
 
                 with open(q_path, "rb") as f:
@@ -196,8 +218,7 @@ class QuarantineManager:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 row = conn.execute(
-                    "SELECT quarantine_path FROM quarantine WHERE id=?",
-                    (entry_id,)
+                    "SELECT quarantine_path FROM quarantine WHERE id=?", (entry_id,)
                 ).fetchone()
                 if row and os.path.exists(row[0]):
                     os.unlink(row[0])
@@ -214,13 +235,15 @@ class QuarantineManager:
             for row in conn.execute(
                 "SELECT * FROM quarantine WHERE restored=0 ORDER BY timestamp DESC"
             ):
-                entries.append(QuarantineEntry(
-                    entry_id=row[0],
-                    original_path=row[1],
-                    quarantine_path=row[2],
-                    file_hash=row[3],
-                    virus_name=row[4],
-                    timestamp=datetime.fromtimestamp(row[5]),
-                    encrypted=bool(row[6]),
-                ))
+                entries.append(
+                    QuarantineEntry(
+                        entry_id=row[0],
+                        original_path=row[1],
+                        quarantine_path=row[2],
+                        file_hash=row[3],
+                        virus_name=row[4],
+                        timestamp=datetime.fromtimestamp(row[5]),
+                        encrypted=bool(row[6]),
+                    )
+                )
         return entries

@@ -2,6 +2,7 @@
 """
 PolkitHelper — Elevation via pkexec for privileged operations
 """
+
 import logging
 import subprocess
 from typing import List, Optional, Callable
@@ -12,8 +13,12 @@ logger = logging.getLogger("alpha.polkit")
 
 
 class PolkitHelper:
-    def run_elevated(self, command: str, args: List[str],
-                     callback: Optional[Callable[[bool, str], None]] = None):
+    def run_elevated(
+        self,
+        command: str,
+        args: List[str],
+        callback: Optional[Callable[[bool, str], None]] = None,
+    ):
         if paths.is_flatpak_sandbox():
             # pkexec dentro il sandbox non raggiunge il polkit agent
             # dell'host: va eseguito sull'host via flatpak-spawn (richiede

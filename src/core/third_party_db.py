@@ -23,9 +23,17 @@ logger = logging.getLogger("alpha.third_party_db")
 
 class SignatureProvider:
     """Configuration for a single third-party signature source."""
-    def __init__(self, name: str, url: str, filename: str,
-                 interval: int = 3600, max_size: int = 10 * 1024 * 1024,
-                 integrity_check: str = "sha256", enabled: bool = True):
+
+    def __init__(
+        self,
+        name: str,
+        url: str,
+        filename: str,
+        interval: int = 3600,
+        max_size: int = 10 * 1024 * 1024,
+        integrity_check: str = "sha256",
+        enabled: bool = True,
+    ):
         self.name = name
         self.url = url
         self.filename = filename
@@ -39,21 +47,47 @@ class ThirdPartyDBManager:
     """Manages third-party signature databases with atomic updates."""
 
     DEFAULT_PROVIDERS = [
-        SignatureProvider("urlhaus", "https://urlhaus.abuse.ch/downloads/urlhaus.ndb",
-                         "urlhaus.ndb", interval=600, max_size=2 * 1024 * 1024),
-        SignatureProvider("sanesecurity_junk", "https://ftp.swin.edu.au/sanesecurity/junk.ndb",
-                         "sanesecurity_junk.ndb", interval=3600),
-        SignatureProvider("sanesecurity_phish", "https://ftp.swin.edu.au/sanesecurity/phish.ndb",
-                         "sanesecurity_phish.ndb", interval=3600),
-        SignatureProvider("twinclams", "https://raw.githubusercontent.com/twinwave-security/twinclams/master/twinclams.ldb",
-                         "twinclams.ldb", interval=3600, max_size=2 * 1024 * 1024),
-        SignatureProvider("ditekshen", "https://raw.githubusercontent.com/ditekshen/detection/master/clamav/clamav.ldb",
-                         "ditekshen.ldb", interval=86400, max_size=2 * 1024 * 1024),
+        SignatureProvider(
+            "urlhaus",
+            "https://urlhaus.abuse.ch/downloads/urlhaus.ndb",
+            "urlhaus.ndb",
+            interval=600,
+            max_size=2 * 1024 * 1024,
+        ),
+        SignatureProvider(
+            "sanesecurity_junk",
+            "https://ftp.swin.edu.au/sanesecurity/junk.ndb",
+            "sanesecurity_junk.ndb",
+            interval=3600,
+        ),
+        SignatureProvider(
+            "sanesecurity_phish",
+            "https://ftp.swin.edu.au/sanesecurity/phish.ndb",
+            "sanesecurity_phish.ndb",
+            interval=3600,
+        ),
+        SignatureProvider(
+            "twinclams",
+            "https://raw.githubusercontent.com/twinwave-security/twinclams/master/twinclams.ldb",
+            "twinclams.ldb",
+            interval=3600,
+            max_size=2 * 1024 * 1024,
+        ),
+        SignatureProvider(
+            "ditekshen",
+            "https://raw.githubusercontent.com/ditekshen/detection/master/clamav/clamav.ldb",
+            "ditekshen.ldb",
+            interval=86400,
+            max_size=2 * 1024 * 1024,
+        ),
     ]
 
-    def __init__(self, db_path: Optional[str] = None,
-                 sig_dir: Optional[str] = None,
-                 state_dir: Optional[str] = None):
+    def __init__(
+        self,
+        db_path: Optional[str] = None,
+        sig_dir: Optional[str] = None,
+        state_dir: Optional[str] = None,
+    ):
         # NOTA: /var/lib/clamav (la directory di sistema di ClamAV) è
         # montata read-only nel manifest Flatpak e, in esecuzione nativa,
         # scrivibile solo da root. Il default qui è una directory utente
@@ -103,15 +137,20 @@ class ThirdPartyDBManager:
                 for p in self.DEFAULT_PROVIDERS:
                     conn.execute(
                         "INSERT INTO downloads VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                        (p.name, p.url, p.filename, 0, None, None, 0, int(p.enabled))
+                        (p.name, p.url, p.filename, 0, None, None, 0, int(p.enabled)),
                     )
                 rows = conn.execute("SELECT * FROM downloads").fetchall()
 
             for row in rows:
-                self.providers.append(SignatureProvider(
-                    name=row[0], url=row[1], filename=row[2],
-                    interval=3600, enabled=bool(row[7])
-                ))
+                self.providers.append(
+                    SignatureProvider(
+                        name=row[0],
+                        url=row[1],
+                        filename=row[2],
+                        interval=3600,
+                        enabled=bool(row[7]),
+                    )
+                )
 
     def refresh(self) -> Dict[str, dict]:
         """Download and update all enabled providers. Returns results per provider."""
@@ -132,7 +171,7 @@ class ThirdPartyDBManager:
         with sqlite3.connect(self.db_path) as conn:
             row = conn.execute(
                 "SELECT last_download, etag FROM downloads WHERE name=?",
-                (provider.name,)
+                (provider.name,),
             ).fetchone()
             last_download = row[0] if row else 0
             etag = row[1] if row else None
@@ -146,6 +185,7 @@ class ThirdPartyDBManager:
         # download — mai fidarsi implicitamente di uno schema diverso da
         # http/https (es. file:// leggerebbe file locali arbitrari).
         from urllib.parse import urlparse
+
         scheme = urlparse(provider.url).scheme
         if scheme not in ("http", "https"):
             raise ValueError(f"Schema URL non ammesso per {provider.name}: {scheme!r}")
@@ -186,7 +226,10 @@ class ThirdPartyDBManager:
                 test_result = self._test_signature(tmp_path)
                 if not test_result["valid"]:
                     os.unlink(tmp_path)
-                    return {"success": False, "error": f"Integrity test failed: {test_result['error']}"}
+                    return {
+                        "success": False,
+                        "error": f"Integrity test failed: {test_result['error']}",
+                    }
 
                 # Atomic move
                 dest_path = os.path.join(self.sig_dir, provider.filename)
@@ -197,7 +240,13 @@ class ThirdPartyDBManager:
                 with sqlite3.connect(self.db_path) as conn:
                     conn.execute(
                         "UPDATE downloads SET last_download=?, etag=?, local_hash=?, size=? WHERE name=?",
-                        (datetime.now().timestamp(), new_etag, local_hash, len(data), provider.name)
+                        (
+                            datetime.now().timestamp(),
+                            new_etag,
+                            local_hash,
+                            len(data),
+                            provider.name,
+                        ),
                     )
 
                 return {"success": True, "size": len(data), "hash": local_hash}
@@ -210,10 +259,13 @@ class ThirdPartyDBManager:
     def _test_signature(self, path: str) -> dict:
         """Test signature file with clamscan before activation."""
         import subprocess
+
         try:
             result = subprocess.run(
                 ["clamscan", "--database", path, "--infected", "/dev/null"],
-                capture_output=True, text=True, timeout=30
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             # Return code 0 or 1 is OK (0 = clean, 1 = found - but /dev/null is clean)
             if result.returncode in (0, 1):
@@ -227,13 +279,19 @@ class ThirdPartyDBManager:
         status = []
         with sqlite3.connect(self.db_path) as conn:
             for row in conn.execute("SELECT * FROM downloads"):
-                status.append({
-                    "name": row[0],
-                    "filename": row[2],
-                    "last_download": datetime.fromtimestamp(row[3]).isoformat() if row[3] else None,
-                    "size": row[6],
-                    "enabled": bool(row[7]),
-                })
+                status.append(
+                    {
+                        "name": row[0],
+                        "filename": row[2],
+                        "last_download": (
+                            datetime.fromtimestamp(row[3]).isoformat()
+                            if row[3]
+                            else None
+                        ),
+                        "size": row[6],
+                        "enabled": bool(row[7]),
+                    }
+                )
         return status
 
     def stage_for_system_install(self) -> List[tuple]:
