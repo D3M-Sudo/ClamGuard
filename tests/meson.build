@@ -1,0 +1,5 @@
+test_clamav = find_program('python3')
+test('clamav_parser', test_clamav, args: ['-m', 'unittest', files('test_clamav_parser.py')])
+test('quarantine', test_clamav, args: ['-m', 'unittest', files('test_quarantine.py')])
+test('third_party', test_clamav, args: ['-m', 'unittest', files('test_third_party_updater.py')])
+test('virustotal', test_clamav, args: ['-m', 'unittest', files('test_virustotal.py')])

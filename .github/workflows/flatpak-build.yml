@@ -1,0 +1,15 @@
+name: Flatpak Build
+on: [push, workflow_dispatch]
+
+jobs:
+  flatpak:
+    runs-on: ubuntu-latest
+    container:
+      image: bilelmoussaoui/flatpak-github-actions:freedesktop-23.08
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: io.github.d3msudo.clamguard.json
+          cache-key: flatpak-builder-${{ github.sha }}

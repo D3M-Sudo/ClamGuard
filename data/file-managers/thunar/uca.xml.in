@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<actions>
+  <action>
+    <icon>security-high</icon>
+    <name>Scan with ClamGuard</name>
+    <command>clamguard --scan %F</command>
+    <description>Scan selected files with ClamGuard</description>
+    <patterns>*</patterns>
+    <directories/>
+    <other-files/>
+  </action>
+</actions>

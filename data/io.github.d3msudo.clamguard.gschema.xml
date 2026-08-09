@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="io.github.d3msudo.clamguard" path="/io/github/d3msudo/clamguard/">
+    <key name="window-width" type="i">
+      <default>1100</default>
+      <summary>Window width</summary>
+    </key>
+    <key name="window-height" type="i">
+      <default>780</default>
+      <summary>Window height</summary>
+    </key>
+    <key name="window-maximized" type="b">
+      <default>false</default>
+      <summary>Window maximized</summary>
+    </key>
+    <key name="clamav-socket-path" type="s">
+      <default>'/run/clamav/clamd.ctl'</default>
+      <summary>ClamAV daemon socket path</summary>
+    </key>
+    <key name="use-clamd" type="b">
+      <default>true</default>
+      <summary>Prefer clamd over clamscan</summary>
+    </key>
+    <key name="quarantine-encrypt" type="b">
+      <default>false</default>
+      <summary>Encrypt quarantined files</summary>
+    </key>
+    <key name="virustotal-enabled" type="b">
+      <default>false</default>
+      <summary>Enable VirusTotal integration</summary>
+    </key>
+    <key name="third-party-enabled" type="b">
+      <default>false</default>
+      <summary>Enable third-party signature databases</summary>
+    </key>
+    <key name="auto-scan-downloads" type="b">
+      <default>true</default>
+      <summary>Auto-scan downloaded files</summary>
+    </key>
+    <key name="show-tray-icon" type="b">
+      <default>true</default>
+      <summary>Show system tray icon</summary>
+    </key>
+    <key name="last-scan-path" type="s">
+      <default>''</default>
+      <summary>Last scanned path</summary>
+    </key>
+  </schema>
+</schemalist>

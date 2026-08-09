@@ -1,0 +1,11 @@
+option('tests',
+  type: 'boolean',
+  value: true,
+  description: 'Build and run tests'
+)
+
+option('flatpak',
+  type: 'boolean',
+  value: false,
+  description: 'Build for Flatpak environment'
+)

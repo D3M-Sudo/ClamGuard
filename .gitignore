@@ -1,0 +1,37 @@
+# Build artifacts
+build/
+dist/
+*.deb
+*.changes
+*.buildinfo
+*.rpm
+*.tar.gz
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.coverage
+
+# Flatpak
+.flatpak-builder/
+repo/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+bug report/
+*.log

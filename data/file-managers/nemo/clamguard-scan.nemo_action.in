@@ -1,0 +1,8 @@
+[Nemo Action]
+Active=true
+Name=Scan with ClamGuard
+Comment=Scan selected files with ClamGuard Antivirus
+Exec=clamguard --scan %F
+Icon-Name=security-high
+Selection=any
+Extensions=any

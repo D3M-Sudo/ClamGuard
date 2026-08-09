@@ -1,0 +1,9 @@
+[Unit]
+Description=ClamGuard Scheduled Scan
+After=clamguard-updater.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/clamguard-daemon scheduled-scan
+StandardOutput=journal
+StandardError=journal

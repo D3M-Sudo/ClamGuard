@@ -1,0 +1,144 @@
+{
+    "app-id": "io.github.d3msudo.clamguard",
+    "runtime": "org.gnome.Platform",
+    "runtime-version": "46",
+    "sdk": "org.gnome.Sdk",
+    "command": "clamguard",
+    "finish-args": [
+        "--share=network",
+        "--share=ipc",
+        "--socket=fallback-x11",
+        "--socket=wayland",
+        "--socket=pulseaudio",
+        "--device=dri",
+        "--talk-name=org.freedesktop.secrets",
+        "--talk-name=org.freedesktop.Notifications",
+        "--talk-name=org.freedesktop.Flatpak",
+        "--talk-name=org.gtk.vfs",
+        "--talk-name=org.gtk.vfs.mounttracker",
+        "--talk-name=org.x.StatusNotifierWatcher",
+        "--talk-name=org.kde.StatusNotifierWatcher",
+        "--talk-name=org.freedesktop.StatusNotifierWatcher",
+        "--filesystem=xdg-documents:ro",
+        "--filesystem=xdg-download:ro",
+        "--filesystem=xdg-config/clamav:ro",
+        "--filesystem=xdg-data/clamav:ro",
+        "--filesystem=/var/lib/clamav:ro",
+        "--filesystem=/run/clamav:ro",
+        "--persist=.config/clamguard",
+        "--persist=.local/share/clamguard",
+        "--env=PYTHONPATH=/app/lib/python3.11/site-packages",
+        "--env=CLAMAV_SOCKET=/run/clamav/clamd.ctl"
+    ],
+    "cleanup": [
+        "/include",
+        "/lib/pkgconfig",
+        "/share/pkgconfig",
+        "/share/aclocal",
+        "*.la",
+        "*.a"
+    ],
+    "modules": [
+        {
+            "name": "python3-cryptography",
+            "buildsystem": "simple",
+            "build-commands": [
+                "pip3 install --prefix=/app cryptography==42.0.0"
+            ]
+        },
+        {
+            "name": "python3-requests",
+            "buildsystem": "simple",
+            "build-commands": [
+                "pip3 install --prefix=/app requests==2.31.0"
+            ]
+        },
+        {
+            "name": "python3-aiohttp",
+            "buildsystem": "simple",
+            "build-commands": [
+                "pip3 install --prefix=/app aiohttp==3.9.0"
+            ]
+        },
+        {
+            "name": "python3-virustotal-python",
+            "buildsystem": "simple",
+            "build-commands": [
+                "pip3 install --prefix=/app virustotal-python==1.2.0"
+            ]
+        },
+        {
+            "name": "intltool",
+            "cleanup": [
+                "*"
+            ],
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "https://launchpad.net/intltool/trunk/0.51.0/+download/intltool-0.51.0.tar.gz",
+                    "mirror-urls": [
+                        "https://deb.debian.org/debian/pool/main/i/intltool/intltool_0.51.0.orig.tar.gz"
+                    ],
+                    "sha256": "67c74d94196b153b774ab9f89b2fa6c6ba79352407037c8c14d5aeb334e959cd",
+                    "x-checker-data": {
+                        "type": "anitya",
+                        "project-id": 1385,
+                        "url-template": "https://launchpad.net/intltool/trunk/$version/+download/intltool-$version.tar.gz"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "libdbusmenu",
+            "buildsystem": "autotools",
+            "build-options": {
+                "cflags": "-Wno-error",
+                "env": {
+                    "HAVE_VALGRIND_FALSE": "#",
+                    "HAVE_VALGRIND_TRUE": ""
+                }
+            },
+            "config-opts": [
+                "--with-gtk=3",
+                "--disable-dumper",
+                "--disable-static",
+                "--disable-tests",
+                "--disable-nls",
+                "--enable-introspection=yes"
+            ],
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "https://launchpad.net/libdbusmenu/16.04/16.04.0/+download/libdbusmenu-16.04.0.tar.gz",
+                    "mirror-urls": [
+                        "https://deb.debian.org/debian/pool/main/libd/libdbusmenu/libdbusmenu_16.04.0.orig.tar.gz"
+                    ],
+                    "sha256": "b9cc4a2acd74509435892823607d966d424bd9ad5d0b00938f27240a1bfa878a"
+                }
+            ],
+            "cleanup": [
+                "/include",
+                "/libexec",
+                "/share/gtk-doc",
+                "/share/libdbusmenu",
+                "/lib/girepository-1.0/DbusmenuGtk3-0.4.typelib",
+                "/lib/libdbusmenu-gtk3.*",
+                "*.la"
+            ]
+        },
+        {
+            "name": "clamguard",
+            "builddir": true,
+            "buildsystem": "meson",
+            "config-opts": [
+                "-Dflatpak=true"
+            ],
+            "sources": [
+                {
+                    "type": "dir",
+                    "path": "."
+                }
+            ]
+        }
+    ]
+}

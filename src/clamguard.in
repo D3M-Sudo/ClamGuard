@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+# Launcher generato da meson (src/meson.build) a partire da questo template.
+# Prima di questo fix nessun target del build produceva un eseguibile in
+# bindir: il pacchetto installava solo i moduli Python, senza alcun modo
+# di avviare l'applicazione (né la voce Exec= del .desktop, né gli script
+# di integrazione file-manager, potevano funzionare).
+import sys
+
+sys.path.insert(1, "@PYTHONDIR@")
+
+from clamguard.main import main
+
+if __name__ == "__main__":
+    sys.exit(main(version="@VERSION@"))

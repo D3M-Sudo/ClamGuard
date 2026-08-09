@@ -1,0 +1,12 @@
+[Unit]
+Description=ClamGuard Third-Party Signature Updater
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=clamav
+Group=clamav
+ExecStart=/usr/bin/clamguard-daemon update-signatures
+StandardOutput=journal
+StandardError=journal

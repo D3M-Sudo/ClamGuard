@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.d3msudo.clamguard</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0+</project_license>
+  <name>ClamGuard</name>
+  <summary>Modern ClamAV Security Suite</summary>
+  <description>
+    <p>ClamGuard is a modern GTK4/libadwaita desktop security application integrating ClamAV,
+    VirusTotal API v3, third-party signature databases, quarantine management,
+    and system tray monitoring.</p>
+    <p>Features include:</p>
+    <ul>
+      <li>Real-time and on-demand virus scanning via ClamAV</li>
+      <li>Secure quarantine with SHA-256 verification and optional encryption</li>
+      <li>VirusTotal API v3 integration for second-opinion analysis</li>
+      <li>Third-party signature database management (Sanesecurity, SecuriteInfo, URLhaus)</li>
+      <li>System tray integration with protection status indicators</li>
+      <li>Scheduled scans via systemd timers</li>
+    </ul>
+  </description>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Main Dashboard</caption>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://github.com/D3M-Sudo/ClamGuard</url>
+  <url type="bugtracker">https://github.com/D3M-Sudo/ClamGuard/issues</url>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2026-08-08">
+      <description>
+        <p>Initial release with core scanning, quarantine, and VirusTotal integration.</p>
+      </description>
+    </release>
+  </releases>
+  <developer_name>D3M-Sudo</developer_name>
+  <update_contact>clamguard@example.com</update_contact>
+  <launchable type="desktop-id">io.github.d3msudo.clamguard.desktop</launchable>
+</component>

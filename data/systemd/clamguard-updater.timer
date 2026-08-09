@@ -1,0 +1,10 @@
+[Unit]
+Description=ClamGuard Third-Party Signature Updater Timer
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+RandomizedDelaySec=3600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+# Launcher generato da meson (src/meson.build) a partire da questo template.
+# Invocato dagli unit systemd in data/systemd/*.service, che prima
+# puntavano a un binario mai prodotto dal build.
+import sys
+
+sys.path.insert(1, "@PYTHONDIR@")
+
+from clamguard.daemon.cli import main
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=ClamGuard
+Comment=Modern ClamAV Security Suite
+Exec=clamguard
+Icon=io.github.d3msudo.clamguard
+Type=Application
+Categories=System;Security;GTK;
+Keywords=antivirus;clamav;security;scan;virus;malware;
+StartupNotify=true
+Terminal=false

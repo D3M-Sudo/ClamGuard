@@ -1,0 +1,36 @@
+Source: alpha
+Section: utils
+Priority: optional
+Maintainer: Alpha Team <alpha@example.com>
+Build-Depends: debhelper-compat (= 13),
+               meson (>= 1.0),
+               python3 (>= 3.11),
+               python3-gi,
+               gir1.2-gtk-4.0,
+               gir1.2-adw-1,
+               libadwaita-1-dev,
+               gettext
+Standards-Version: 4.6.2
+Homepage: https://github.com/user/alpha
+
+Package: alpha
+Architecture: all
+Depends: ${misc:Depends},
+         python3 (>= 3.11),
+         python3-gi,
+         gir1.2-gtk-4.0,
+         gir1.2-adw-1,
+         clamav | clamav-daemon,
+         clamav-freshclam,
+         python3-cryptography,
+         python3-requests,
+         python3-aiohttp,
+         python3-dbus,
+         policykit-1,
+         libsecret-1-0,
+         gir1.2-secret-1
+Recommends: nautilus | nemo | thunar | dolphin
+Description: Modern ClamAV security suite for Linux
+ Alpha is a modern GTK4/libadwaita desktop security application
+ integrating ClamAV, VirusTotal API v3, third-party signature
+ databases, quarantine management, and system tray monitoring.
