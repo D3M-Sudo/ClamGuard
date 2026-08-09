@@ -1,11 +1,23 @@
 #!/usr/bin/make -f
 
 export DH_VERBOSE = 1
-export PYBUILD_NAME = alpha
+export PYBUILD_NAME = clamguard
 
 %:
 	dh $@ --with python3 --buildsystem=meson
 
 override_dh_auto_install:
 	dh_auto_install
-	find debian/alpha -type d -name __pycache__ -exec rm -rf {} +
+	find debian/clamguard -type d -name __pycache__ -exec rm -rf {} +
+
+override_dh_install:
+	dh_install
+	# Installa la policy polkit nella posizione canonica
+	# (/usr/share/polkit-1/actions/) così pkexec può autorizzare
+	# l'installazione delle firme di terze parti a runtime.
+	policy_file=$$(find debian/clamguard -path '*/clamguard/cli/resources/io.github.d3msudo.clamguard.policy' | head -n1); \
+	if [ -n "$$policy_file" ]; then \
+		install -D -m 644 "$$policy_file" debian/clamguard/usr/share/polkit-1/actions/io.github.d3msudo.clamguard.policy; \
+	else \
+		echo "WARNING: policy polkit non trovata, skip installazione" >&2; \
+	fi

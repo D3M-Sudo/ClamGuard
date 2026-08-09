@@ -12,16 +12,18 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict
 
-logger = logging.getLogger("alpha.virustotal")
+logger = logging.getLogger("clamguard.virustotal")
 
 # Optional dependency — gracefully degrade if not installed
 try:
-    from virustotal_python import Virustotal
+    import requests
 
-    VT_AVAILABLE = True
+    REQUESTS_AVAILABLE = True
 except ImportError:
-    VT_AVAILABLE = False
-    logger.warning("virustotal-python not installed; VT features disabled")
+    REQUESTS_AVAILABLE = False
+    logger.warning("python3-requests not installed; VT features disabled")
+
+VT_API_BASE = "https://www.virustotal.com/api/v3"
 
 
 class VirusTotalClient:
@@ -30,18 +32,19 @@ class VirusTotalClient:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        cache_db: str = "/var/lib/alpha/virustotal_cache.db",
+        cache_db: str = "/var/lib/clamguard/virustotal_cache.db",
     ):
         self.api_key = api_key or os.environ.get("VIRUSTOTAL_API_KEY")
         self.cache_db = cache_db
-        self._client = None
+        self._session = None
         self._last_request = 0
         self._min_interval = 15.0  # Public API: 4 req/min
         os.makedirs(os.path.dirname(cache_db), exist_ok=True)
         self._init_cache()
 
-        if VT_AVAILABLE and self.api_key:
-            self._client = Virustotal(API_KEY=self.api_key)
+        if REQUESTS_AVAILABLE and self.api_key:
+            self._session = requests.Session()
+            self._session.headers.update({"x-apikey": self.api_key})
 
     def _init_cache(self):
         with sqlite3.connect(self.cache_db) as conn:
@@ -65,7 +68,7 @@ class VirusTotalClient:
         self, file_path: str, force_refresh: bool = False
     ) -> Optional[Dict]:
         """Lookup file by SHA-256 hash with cache."""
-        if not self._client:
+        if not self._session:
             return None
 
         file_hash = hashlib.sha256(Path(file_path).read_bytes()).hexdigest()
@@ -85,8 +88,9 @@ class VirusTotalClient:
         # API request
         self._rate_limit()
         try:
-            resp = self._client.request(f"files/{file_hash}")
-            data = resp.data
+            resp = self._session.get(f"{VT_API_BASE}/files/{file_hash}", timeout=60)
+            resp.raise_for_status()
+            data = resp.json().get("data", {})
 
             attributes = data.get("attributes", {})
             last_analysis = attributes.get("last_analysis_stats", {})
@@ -103,6 +107,8 @@ class VirusTotalClient:
             }
 
             # Cache result
+            import json
+
             with sqlite3.connect(self.cache_db) as conn:
                 conn.execute(
                     "INSERT OR REPLACE INTO vt_cache VALUES (?, ?, ?, ?, ?)",
@@ -121,17 +127,18 @@ class VirusTotalClient:
 
     def upload_file(self, file_path: str) -> Optional[str]:
         """Upload file for analysis, return analysis ID."""
-        if not self._client:
+        if not self._session:
             return None
         self._rate_limit()
         try:
             with open(file_path, "rb") as f:
-                resp = self._client.request(
-                    "files",
+                resp = self._session.post(
+                    f"{VT_API_BASE}/files",
                     files={"file": (os.path.basename(file_path), f.read())},
-                    method="POST",
+                    timeout=300,
                 )
-            return resp.data.get("id")
+            resp.raise_for_status()
+            return resp.json().get("data", {}).get("id")
         except Exception as e:
             logger.error(f"VT upload failed: {e}")
             return None

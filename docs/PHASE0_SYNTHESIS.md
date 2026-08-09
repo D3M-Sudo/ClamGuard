@@ -10,7 +10,7 @@
 3. **clamav-unofficial-sigs** (extremeshok) — Script bash completo per firme Sanesecurity,
    SecuriteInfo, URLhaus, MalwarePatrol, ditekshen, twinclams, interServer, RFXN. Test HAM,
    whitelist IGN2, GPG verify.
-4. **VirusTotal API v3** — Client ufficiale Python `virustotal-python`, rate-limit aware,
+4. **VirusTotal API v3** — Integrazione diretta via `requests` (API v3), rate-limit aware,
    supporta lookup hash, upload opzionale, environment key.
 5. **Flatpak Security** — Evitare `filesystem=host`, usare portali, conditional permissions,
    `--persist` per config, minimizzare D-Bus.

@@ -33,5 +33,11 @@ flatpak-builder --repo=repo build io.github.d3msudo.clamguard.json
 dpkg-buildpackage -us -uc -b
 ```
 
+## VirusTotal
+VirusTotal API v3 integration uses the standard `python3-requests` package
+(available in Debian/Ubuntu repositories). No additional pip packages are
+required. If the API key is not configured, the VirusTotal features are
+gracefully disabled.
+
 ## License
 GPL-3.0+

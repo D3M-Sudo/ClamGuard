@@ -98,20 +98,6 @@
             ]
         },
         {
-            "name": "python3-virustotal-python",
-            "buildsystem": "simple",
-            "build-commands": [
-                "pip3 install --prefix=/app --no-index --find-links . virustotal_python-1.1.2-py3-none-any.whl"
-            ],
-            "sources": [
-                {
-                    "type": "file",
-                    "url": "https://files.pythonhosted.org/packages/45/7e/9bd0b52a13f545b7f3a68b69ea08e1d684b1b1432c48142f9a3ad00240d9/virustotal_python-1.1.2-py3-none-any.whl",
-                    "sha256": "c662e87f19661e19185fb247a46a81b0700a17553ab8524a33c5ce37326a04ee"
-                }
-            ]
-        },
-        {
             "name": "intltool",
             "cleanup": [
                 "*"
