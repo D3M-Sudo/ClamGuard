@@ -13,3 +13,4 @@ jobs:
         with:
           manifest-path: io.github.d3msudo.clamguard.json
           cache-key: flatpak-builder-${{ github.sha }}
+          bundle: clamguard.flatpak

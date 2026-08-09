@@ -13,5 +13,5 @@ jobs:
       - run: cp ../*.deb .
       - uses: actions/upload-artifact@v7
         with:
-          name: deb-package
+          name: clamguard-deb
           path: ./*.deb
