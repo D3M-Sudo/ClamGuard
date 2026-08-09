@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import unittest
-from src.core.clamav import ClamAVScanner, ScanResult
+from src.core.clamav import ClamAVScanner
 
 
 class TestClamAVParser(unittest.TestCase):
