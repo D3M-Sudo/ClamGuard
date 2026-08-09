@@ -10,7 +10,8 @@ jobs:
       - run: sudo apt-get install -y build-essential devscripts equivs dh-python
       - run: sudo mk-build-deps -i -r
       - run: dpkg-buildpackage -us -uc -b
+      - run: cp ../*.deb .
       - uses: actions/upload-artifact@v7
         with:
           name: deb-package
-          path: ../alpha_*.deb
+          path: ./*.deb
