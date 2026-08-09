@@ -1,12 +1,12 @@
 [flake8]
 max-line-length = 88
 extend-ignore =
-    E203,    # whitespace before ':' (conflicts with black)
-    E501,    # line too long (black handles wrapping)
-    E402,    # module level import not at top (legit: path setup / optional deps)
-    E702,    # statement ends with semicolon
-    E127,    # continuation line over-indented (black style)
-    E128,    # continuation line under-indented (black style)
+    E203,
+    E501,
+    E402,
+    E702,
+    E127,
+    E128
 exclude =
     .git,
     build,

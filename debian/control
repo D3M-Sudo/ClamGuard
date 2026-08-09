@@ -3,6 +3,7 @@ Section: utils
 Priority: optional
 Maintainer: Alpha Team <alpha@example.com>
 Build-Depends: debhelper-compat (= 13),
+               dh-python,
                meson (>= 1.0),
                python3 (>= 3.11),
                python3-gi,
