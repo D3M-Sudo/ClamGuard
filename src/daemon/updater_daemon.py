@@ -4,8 +4,9 @@ UpdaterDaemon — Background daemon for third-party signature updates
 """
 
 import logging
-from ..core.third_party_db import ThirdPartyDBManager
+
 from ..core.freshclam import FreshclamManager
+from ..core.third_party_db import ThirdPartyDBManager
 
 logger = logging.getLogger("alpha.daemon.updater")
 
@@ -17,7 +18,7 @@ class UpdaterDaemon:
 
     def run(self):
         logger.info("Starting ClamGuard signature updater daemon")
-        success, output = self.freshclam.update()
+        success, _output = self.freshclam.update()
         logger.info(f"freshclam: success={success}")
         results = self.third_party.refresh()
         for name, result in results.items():

@@ -68,7 +68,7 @@ sys.exit(main())
 """
 
 
-def _source_paths() -> "tuple[Path, Path, Traversable]":
+def _source_paths() -> tuple[Path, Path, Traversable]:
     """Risolve i file sorgente da installare (helper, dipendenza, policy).
 
     I moduli Python dell'helper (apply_signatures e privileged_paths) sono
@@ -85,7 +85,7 @@ def _source_paths() -> "tuple[Path, Path, Traversable]":
     return apply_src, priv_src, policy_src
 
 
-def _create_install_directories(root: Path, dest_dirs: "tuple[Path, ...]") -> None:
+def _create_install_directories(root: Path, dest_dirs: tuple[Path, ...]) -> None:
     """Crea le directory di destinazione mancanti con mode deterministico 0o755.
 
     nosec B103 su entrambi i chmod sotto: operano esclusivamente su
@@ -151,7 +151,7 @@ def _atomic_install_file(destination: Path, content: bytes, mode: int) -> None:
         raise
 
 
-def install_privileged_helper(prefix: str = "/") -> "tuple[bool, str]":
+def install_privileged_helper(prefix: str = "/") -> tuple[bool, str]:
     """Installa l'helper privilegiato, la sua libreria, e la policy polkit.
 
     Args:
@@ -204,8 +204,8 @@ def install_privileged_helper(prefix: str = "/") -> "tuple[bool, str]":
 
     return (
         True,
-        f"Helper installato in {bin_path} e policy polkit in {policy_dst}. "
-        "ClamGuard può ora installare le firme di terze parti nel database di sistema.",
+        (f"Helper installato in {bin_path} e policy polkit in {policy_dst}. "
+        "ClamGuard può ora installare le firme di terze parti nel database di sistema."),
     )
 
 
@@ -243,7 +243,7 @@ def run(args: argparse.Namespace) -> int:
     return 1
 
 
-def register(subparsers: "argparse._SubParsersAction") -> None:
+def register(subparsers: argparse._SubParsersAction) -> None:
     """Registra il sottocomando install-privileged-helper nel router CLI."""
     parser = subparsers.add_parser(
         "install-privileged-helper",

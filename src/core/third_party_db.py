@@ -4,17 +4,17 @@ ThirdPartyDBManager — Download, verify, and update unofficial signatures
 Inspired by Fangfrisch and clamav-unofficial-sigs
 """
 
-import os
 import hashlib
 import logging
+import os
+import shutil
 import sqlite3
 import tempfile
-import shutil
+from datetime import datetime, timezone
 from pathlib import Path
-from datetime import datetime
-from typing import Dict, List, Optional
-from urllib.request import urlopen, Request
+from typing import ClassVar
 from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 from . import paths
 
@@ -46,7 +46,7 @@ class SignatureProvider:
 class ThirdPartyDBManager:
     """Manages third-party signature databases with atomic updates."""
 
-    DEFAULT_PROVIDERS = [
+    DEFAULT_PROVIDERS: ClassVar[list[SignatureProvider]] = [
         SignatureProvider(
             "urlhaus",
             "https://urlhaus.abuse.ch/downloads/urlhaus.ndb",
@@ -84,9 +84,9 @@ class ThirdPartyDBManager:
 
     def __init__(
         self,
-        db_path: Optional[str] = None,
-        sig_dir: Optional[str] = None,
-        state_dir: Optional[str] = None,
+        db_path: str | None = None,
+        sig_dir: str | None = None,
+        state_dir: str | None = None,
     ):
         # NOTA: /var/lib/clamav (la directory di sistema di ClamAV) è
         # montata read-only nel manifest Flatpak e, in esecuzione nativa,
@@ -99,13 +99,13 @@ class ThirdPartyDBManager:
         self.sig_dir = sig_dir or paths.app_data_dir("signatures")
         self.db_path = db_path or os.path.join(self.state_dir, "third_party.db")
         os.makedirs(self.sig_dir, exist_ok=True)
-        self.providers: List[SignatureProvider] = []
+        self.providers: list[SignatureProvider] = []
         self._init_db()
         try:
             if os.path.exists(self.db_path):
                 os.chmod(self.db_path, 0o600)
-        except Exception:
-            pass
+        except OSError as e:
+            logger.warning(f"Could not set permissions on {self.db_path}: {e}")
         self._load_providers()
 
     def _init_db(self):
@@ -157,7 +157,7 @@ class ThirdPartyDBManager:
                     )
                 )
 
-    def refresh(self) -> Dict[str, dict]:
+    def refresh(self) -> dict[str, dict]:
         """Download and update all enabled providers. Returns results per provider."""
         results = {}
         for provider in self.providers:
@@ -166,7 +166,7 @@ class ThirdPartyDBManager:
             try:
                 result = self._update_provider(provider)
                 results[provider.name] = result
-            except Exception as e:
+            except (OSError, ValueError, sqlite3.Error) as e:
                 logger.error(f"Failed to update {provider.name}: {e}")
                 results[provider.name] = {"success": False, "error": str(e)}
         return results
@@ -182,7 +182,7 @@ class ThirdPartyDBManager:
             etag = row[1] if row else None
 
         # Respect interval
-        if datetime.now().timestamp() - last_download < provider.interval:
+        if datetime.now(timezone.utc).timestamp() - last_download < provider.interval:
             return {"success": True, "skipped": True, "reason": "interval not elapsed"}
 
         # Difesa in profondità: provider.url viene riletto da SQLite (non
@@ -246,7 +246,7 @@ class ThirdPartyDBManager:
                     conn.execute(
                         "UPDATE downloads SET last_download=?, etag=?, local_hash=?, size=? WHERE name=?",
                         (
-                            datetime.now().timestamp(),
+                            datetime.now(timezone.utc).timestamp(),
                             new_etag,
                             local_hash,
                             len(data),
@@ -258,7 +258,7 @@ class ThirdPartyDBManager:
 
         except HTTPError as e:
             return {"success": False, "error": f"HTTP {e.code}"}
-        except Exception as e:
+        except (OSError, ValueError, sqlite3.Error) as e:
             return {"success": False, "error": str(e)}
 
     def _test_signature(self, path: str) -> dict:
@@ -271,15 +271,16 @@ class ThirdPartyDBManager:
                 capture_output=True,
                 text=True,
                 timeout=30,
+                check=False,
             )
             # Return code 0 or 1 is OK (0 = clean, 1 = found - but /dev/null is clean)
             if result.returncode in (0, 1):
                 return {"valid": True}
             return {"valid": False, "error": result.stderr or "Unknown error"}
-        except Exception as e:
+        except (OSError, subprocess.TimeoutExpired) as e:
             return {"valid": False, "error": str(e)}
 
-    def get_provider_status(self) -> List[dict]:
+    def get_provider_status(self) -> list[dict]:
         """Return status of all providers."""
         status = []
         with sqlite3.connect(self.db_path) as conn:
@@ -289,7 +290,7 @@ class ThirdPartyDBManager:
                         "name": row[0],
                         "filename": row[2],
                         "last_download": (
-                            datetime.fromtimestamp(row[3]).isoformat()
+                            datetime.fromtimestamp(row[3], tz=timezone.utc).isoformat()
                             if row[3]
                             else None
                         ),
@@ -299,7 +300,7 @@ class ThirdPartyDBManager:
                 )
         return status
 
-    def stage_for_system_install(self) -> List[tuple]:
+    def stage_for_system_install(self) -> list[tuple]:
         """Copia le firme scaricate/verificate in un'area di staging
         per-utente 0o700, pronta per l'helper privilegiato
         clamguard-apply-signatures.
@@ -353,7 +354,7 @@ class ThirdPartyDBManager:
             )
         return pairs
 
-    def build_privileged_install_args(self) -> List[str]:
+    def build_privileged_install_args(self) -> list[str]:
         """Argomenti pronti per PolkitHelper.run_elevated(), incluso il
         token di protocollo richiesto dall'helper."""
         from .privileged_paths import PROTOCOL_VERSION

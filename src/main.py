@@ -4,21 +4,21 @@ ClamGuard — Modern ClamAV Security Suite for Linux
 Entry point: Gio.Application, CLI args, single-instance, system tray
 """
 
-import sys
-import signal
 import logging
+import signal
+import sys
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Secret", "1")
-from gi.repository import GLib, Gio, Gtk, Adw, Gdk
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
-from .window import ClamGuardWindow
-from .services.tray_manager import TrayManager
-from .services.notifier import Notifier
 from .services.credentials import CredentialsService
+from .services.notifier import Notifier
+from .services.tray_manager import TrayManager
+from .window import ClamGuardWindow
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("clamguard")

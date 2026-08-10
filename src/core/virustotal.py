@@ -3,14 +3,13 @@
 VirusTotalClient — API v3 integration with local cache and rate limiting
 """
 
-import os
-import time
-import logging
-import sqlite3
 import hashlib
+import logging
+import os
+import sqlite3
+import time
+from datetime import datetime, timezone
 from pathlib import Path
-from datetime import datetime
-from typing import Optional, Dict
 
 from . import paths
 
@@ -33,8 +32,8 @@ class VirusTotalClient:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        cache_db: Optional[str] = None,
+        api_key: str | None = None,
+        cache_db: str | None = None,
     ):
         self.api_key = api_key or os.environ.get("VIRUSTOTAL_API_KEY")
         if not self.api_key:
@@ -42,8 +41,8 @@ class VirusTotalClient:
                 from ..services.credentials import CredentialsService
 
                 self.api_key = CredentialsService().get_vt_key()
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001 - graceful fallback to env var
+                logger.debug(f"Could not load VT key from credentials service: {e}")
         self.cache_db = cache_db or paths.app_data_dir("virustotal_cache.db")
         self._session = None
         self._last_request = 0
@@ -53,8 +52,8 @@ class VirusTotalClient:
         try:
             if os.path.exists(self.cache_db):
                 os.chmod(self.cache_db, 0o600)
-        except Exception:
-            pass
+        except OSError as e:
+            logger.warning(f"Could not set permissions on cache DB: {e}")
 
         if REQUESTS_AVAILABLE and self.api_key:
             self._session = requests.Session()
@@ -80,7 +79,7 @@ class VirusTotalClient:
 
     def lookup_file(
         self, file_path: str, force_refresh: bool = False
-    ) -> Optional[Dict]:
+    ) -> dict | None:
         """Lookup file by SHA-256 hash with cache."""
         if not self._session:
             return None
@@ -94,7 +93,7 @@ class VirusTotalClient:
                     "SELECT response_json, cached_at, malicious, total FROM vt_cache WHERE file_hash=?",
                     (file_hash,),
                 ).fetchone()
-                if row and datetime.now().timestamp() - row[1] < 86400:  # 24h cache
+                if row and datetime.now(timezone.utc).timestamp() - row[1] < 86400:  # 24h cache
                     import json
 
                     return json.loads(row[0])
@@ -119,7 +118,7 @@ class VirusTotalClient:
                 "total": sum(last_analysis.values()),
                 "names": attributes.get("names", []),
                 "type": attributes.get("type_description", "unknown"),
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
             # Cache result
@@ -131,7 +130,7 @@ class VirusTotalClient:
                     (
                         file_hash,
                         json.dumps(result),
-                        datetime.now().timestamp(),
+                        datetime.now(timezone.utc).timestamp(),
                         result["malicious"],
                         result["total"],
                     ),
@@ -149,11 +148,11 @@ class VirusTotalClient:
         except requests.exceptions.Timeout as e:
             logger.error(f"VirusTotal request timed out: {e}")
             return None
-        except Exception as e:
+        except (OSError, ValueError, sqlite3.Error) as e:
             logger.error(f"VT lookup failed: {e}")
             return None
 
-    def upload_file(self, file_path: str) -> Optional[str]:
+    def upload_file(self, file_path: str) -> str | None:
         """Upload file for analysis, return analysis ID."""
         if not self._session:
             return None
@@ -179,6 +178,6 @@ class VirusTotalClient:
         except requests.exceptions.Timeout as e:
             logger.error(f"VirusTotal request timed out: {e}")
             return None
-        except Exception as e:
+        except (OSError, ValueError, sqlite3.Error) as e:
             logger.error(f"VT upload failed: {e}")
             return None

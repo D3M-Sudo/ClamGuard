@@ -3,12 +3,11 @@
 HistoryManager — Scan history and threat log with SQLite backend
 """
 
-import os
 import json
-import sqlite3
 import logging
-from datetime import datetime
-from typing import List, Optional
+import os
+import sqlite3
+from datetime import datetime, timezone
 
 from . import paths
 
@@ -22,10 +21,10 @@ class ScanRecord:
         scan_type: str,
         target: str,
         start_time: datetime,
-        end_time: Optional[datetime],
+        end_time: datetime | None,
         files_scanned: int,
         threats_found: int,
-        log_path: Optional[str],
+        log_path: str | None,
     ):
         self.id = record_id
         self.scan_type = scan_type
@@ -40,15 +39,15 @@ class ScanRecord:
 class HistoryManager:
     """Persistent scan history with export capabilities."""
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         self.db_path = db_path or paths.app_data_dir("history.db")
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._init_db()
         try:
             if os.path.exists(self.db_path):
                 os.chmod(self.db_path, 0o600)
-        except Exception:
-            pass
+        except OSError as e:
+            logger.warning(f"Could not set permissions on {self.db_path}: {e}")
 
     def _init_db(self):
         with sqlite3.connect(self.db_path) as conn:
@@ -83,7 +82,7 @@ class HistoryManager:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(
                 "INSERT INTO scans (scan_type, target, start_time) VALUES (?, ?, ?)",
-                (scan_type, target, datetime.now().timestamp()),
+                (scan_type, target, datetime.now(timezone.utc).timestamp()),
             )
             if cursor.lastrowid is None:
                 raise RuntimeError("INSERT in scans non ha prodotto un lastrowid")
@@ -95,14 +94,14 @@ class HistoryManager:
         files_scanned: int,
         threats_found: int,
         results: list,
-        log_path: Optional[str] = None,
+        log_path: str | None = None,
     ):
         """Record scan completion."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 "UPDATE scans SET end_time=?, files_scanned=?, threats_found=?, log_path=?, results_json=? WHERE id=?",
                 (
-                    datetime.now().timestamp(),
+                    datetime.now(timezone.utc).timestamp(),
                     files_scanned,
                     threats_found,
                     log_path,
@@ -116,7 +115,7 @@ class HistoryManager:
         scan_id: int,
         file_path: str,
         virus_name: str,
-        file_hash: Optional[str],
+        file_hash: str | None,
         action: str = "detected",
     ):
         with sqlite3.connect(self.db_path) as conn:
@@ -128,11 +127,11 @@ class HistoryManager:
                     virus_name,
                     file_hash,
                     action,
-                    datetime.now().timestamp(),
+                    datetime.now(timezone.utc).timestamp(),
                 ),
             )
 
-    def get_recent_scans(self, limit: int = 50) -> List[ScanRecord]:
+    def get_recent_scans(self, limit: int = 50) -> list[ScanRecord]:
         records = []
         with sqlite3.connect(self.db_path) as conn:
             for row in conn.execute(
@@ -143,8 +142,12 @@ class HistoryManager:
                         record_id=row[0],
                         scan_type=row[1],
                         target=row[2],
-                        start_time=datetime.fromtimestamp(row[3]),
-                        end_time=datetime.fromtimestamp(row[4]) if row[4] else None,
+                        start_time=datetime.fromtimestamp(row[3], tz=timezone.utc),
+                        end_time=(
+                            datetime.fromtimestamp(row[4], tz=timezone.utc)
+                            if row[4]
+                            else None
+                        ),
                         files_scanned=row[5],
                         threats_found=row[6],
                         log_path=row[7],
@@ -152,7 +155,7 @@ class HistoryManager:
                 )
         return records
 
-    def export_csv(self, path: str, scan_id: Optional[int] = None):
+    def export_csv(self, path: str, scan_id: int | None = None):
         import csv
 
         def _sanitize_csv_value(val):

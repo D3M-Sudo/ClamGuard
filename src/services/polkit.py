@@ -5,7 +5,7 @@ PolkitHelper — Elevation via pkexec for privileged operations
 
 import logging
 import subprocess
-from typing import List, Optional, Callable
+from collections.abc import Callable
 
 from ..core import paths
 
@@ -16,8 +16,8 @@ class PolkitHelper:
     def run_elevated(
         self,
         command: str,
-        args: List[str],
-        callback: Optional[Callable[[bool, str], None]] = None,
+        args: list[str],
+        callback: Callable[[bool, str], None] | None = None,
     ):
         if paths.is_flatpak_sandbox():
             # pkexec dentro il sandbox non raggiunge il polkit agent
@@ -27,13 +27,15 @@ class PolkitHelper:
         else:
             cmd = ["pkexec", command] + args
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=300, check=False
+            )
             success = result.returncode == 0
             output = result.stdout + result.stderr
             if callback:
                 callback(success, output)
             return success, output
-        except Exception as e:
+        except (OSError, subprocess.TimeoutExpired) as e:
             logger.error(f"pkexec failed: {e}")
             if callback:
                 callback(False, str(e))

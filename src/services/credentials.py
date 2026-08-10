@@ -4,6 +4,7 @@ CredentialsService — Secure API key storage via SecretService / libsecret
 """
 
 import logging
+
 import gi
 
 gi.require_version("Secret", "1")
@@ -30,7 +31,7 @@ class CredentialsService:
                 None,
             )
             return True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - libsecret può sollevare vari errori
             logger.error(f"Failed to store key: {e}")
             return False
 
@@ -40,6 +41,6 @@ class CredentialsService:
                 Secret.password_lookup_sync(self.SCHEMA, {"api": "virustotal"}, None)
                 or ""
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - libsecret può sollevare vari errori
             logger.error(f"Failed to retrieve key: {e}")
             return ""

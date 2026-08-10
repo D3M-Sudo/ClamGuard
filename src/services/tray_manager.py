@@ -66,7 +66,7 @@ class TrayManager:
                 text=True,
                 bufsize=1,  # line-buffered
             )
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.error(f"Impossibile avviare il subprocesso tray: {e}")
             self._tray_down = True
             return
@@ -86,11 +86,11 @@ class TrayManager:
             try:
                 self._send_command({"action": "quit"})
                 self._process.wait(timeout=2)
-            except Exception:
+            except (OSError, ValueError):
                 try:
                     self._process.terminate()
                     self._process.wait(timeout=2)
-                except Exception:
+                except (OSError, ValueError):
                     self._process.kill()
             self._process = None
 
@@ -104,7 +104,7 @@ class TrayManager:
         try:
             self._process.stdin.write(json.dumps(command) + "\n")
             self._process.stdin.flush()
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.debug(f"Invio comando fallito: {e}")
 
     def update_status(self, status: str):
@@ -130,7 +130,7 @@ class TrayManager:
                 if not isinstance(message, dict) or "event" not in message:
                     continue
                 GLib.idle_add(self._handle_event, message)
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.error(f"Errore lettura stdout tray: {e}")
         finally:
             with self._state_lock:

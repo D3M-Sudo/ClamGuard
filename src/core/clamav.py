@@ -4,15 +4,15 @@ ClamAVScanner — Async wrapper for clamscan / clamdscan / clamd socket
 High-performance parsing, I/O mitigation for large scans
 """
 
+import asyncio
+import hashlib
+import logging
 import os
 import re
-import asyncio
-import logging
 import subprocess
-import hashlib
+from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
-from datetime import datetime
-from typing import List, Optional, Callable
 
 logger = logging.getLogger("alpha.clamav")
 
@@ -24,14 +24,14 @@ class ScanResult:
         self,
         path: str,
         infected: bool,
-        virus_name: Optional[str] = None,
-        error: Optional[str] = None,
+        virus_name: str | None = None,
+        error: str | None = None,
     ):
         self.path = path
         self.infected = infected
         self.virus_name = virus_name
         self.error = error
-        self.timestamp = datetime.now()
+        self.timestamp = datetime.now(timezone.utc)
         # L'hash NON viene più calcolato qui: leggere l'intero file in modo
         # sincrono per ogni risultato (anche quelli puliti) dentro un loop
         # asyncio blocca l'event loop e annulla il vantaggio dell'I/O async.
@@ -39,7 +39,7 @@ class ScanResult:
         # (es. prima della quarantena di un file infetto).
         self._hash = None
 
-    def compute_hash(self) -> Optional[str]:
+    def compute_hash(self) -> str | None:
         """Calcola (e mette in cache) lo sha256 del file, se ancora presente."""
         if self._hash is None:
             p = Path(self.path)
@@ -48,7 +48,7 @@ class ScanResult:
         return self._hash
 
     @property
-    def hash(self) -> Optional[str]:
+    def hash(self) -> str | None:
         return self._hash
 
     def to_dict(self):
@@ -70,8 +70,8 @@ class ClamAVScanner:
 
     def __init__(
         self,
-        socket_path: Optional[str] = None,
-        extra_db_dirs: Optional[List[str]] = None,
+        socket_path: str | None = None,
+        extra_db_dirs: list[str] | None = None,
     ):
         self.socket_path = socket_path or self._find_socket()
         self._use_clamd = self._detect_clamd()
@@ -110,20 +110,19 @@ class ClamAVScanner:
 
     async def scan_paths(
         self,
-        paths: List[str],
-        progress_callback: Optional[Callable[[str, int, int], None]] = None,
+        paths: list[str],
+        progress_callback: Callable[[str, int, int], None] | None = None,
         chunk_size: int = 100,
-    ) -> List[ScanResult]:
+    ) -> list[ScanResult]:
         """Scan multiple paths with async I/O and progress reporting."""
         if self._use_clamd:
             return await self._scan_clamd(paths, progress_callback)
         return await self._scan_clamscan(paths, progress_callback, chunk_size)
 
     async def _scan_clamd(
-        self, paths: List[str], progress_callback: Optional[Callable] = None
-    ) -> List[ScanResult]:
+        self, paths: list[str], progress_callback: Callable | None = None
+    ) -> list[ScanResult]:
         """Stream scan via clamd UNIX socket using asyncio."""
-        import socket
 
         results = []
         total = len(paths)
@@ -161,13 +160,13 @@ class ClamAVScanner:
 
             writer.close()
             await writer.wait_closed()
-        except (asyncio.TimeoutError, socket.timeout, TimeoutError) as e:
+        except (asyncio.TimeoutError, TimeoutError) as e:
             logger.error(f"clamd scan timeout: {e}")
             return await self._scan_clamscan(paths, progress_callback)
         except (BrokenPipeError, ConnectionResetError) as e:
             logger.error(f"clamd scan connection broken: {e}")
             return await self._scan_clamscan(paths, progress_callback)
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.error(f"clamd scan error: {e}")
             # Fallback to clamscan
             return await self._scan_clamscan(paths, progress_callback)
@@ -177,13 +176,12 @@ class ClamAVScanner:
     async def _scan_file_instream(self, path: str) -> ScanResult:
         """Stream a file to clamd using the INSTREAM command."""
         import struct
-        import socket
 
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_unix_connection(self.socket_path), timeout=10
             )
-        except Exception as e:
+        except (OSError, ConnectionError) as e:
             logger.error(f"Failed to open connection for INSTREAM: {e}")
             return ScanResult(path, False, error=str(e))
 
@@ -191,15 +189,18 @@ class ClamAVScanner:
             writer.write(b"nINSTREAM\n")
             await writer.drain()
 
-            with open(path, "rb") as f:
-                while True:
-                    # Read in chunks of 64KB
-                    chunk = f.read(65536)
-                    if not chunk:
-                        break
-                    chunk_len = len(chunk)
-                    writer.write(struct.pack(">I", chunk_len) + chunk)
-                    await writer.drain()
+            def _read_chunks():
+                with open(path, "rb") as f:
+                    while True:
+                        chunk = f.read(65536)
+                        if not chunk:
+                            break
+                        yield chunk
+
+            for chunk in await asyncio.to_thread(list, _read_chunks()):
+                chunk_len = len(chunk)
+                writer.write(struct.pack(">I", chunk_len) + chunk)
+                await writer.drain()
 
             # End stream with a zero-length chunk
             writer.write(struct.pack(">I", 0))
@@ -213,21 +214,21 @@ class ClamAVScanner:
             if decoded.startswith("stream:"):
                 decoded = decoded.replace("stream:", f"{path}:", 1)
             return self._parse_clamd_response(path, decoded)
-        except (asyncio.TimeoutError, socket.timeout, TimeoutError) as e:
+        except (asyncio.TimeoutError, TimeoutError) as e:
             logger.error(f"Timeout during INSTREAM of {path}: {e}")
             return ScanResult(path, False, error="Timeout")
         except (BrokenPipeError, ConnectionResetError) as e:
             logger.error(f"Broken connection during INSTREAM of {path}: {e}")
             return ScanResult(path, False, error="Connection lost")
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.error(f"INSTREAM error for {path}: {e}")
             return ScanResult(path, False, error=str(e))
         finally:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except Exception:
-                pass
+            except (OSError, ConnectionError) as e:
+                logger.debug(f"Error closing writer for {path}: {e}")
 
     def _parse_clamd_response(self, path: str, response: str) -> ScanResult:
         """Parse clamd STREAM/SCAN output."""
@@ -242,10 +243,10 @@ class ClamAVScanner:
 
     async def _scan_clamscan(
         self,
-        paths: List[str],
-        progress_callback: Optional[Callable],
+        paths: list[str],
+        progress_callback: Callable | None,
         chunk_size: int = 100,
-    ) -> List[ScanResult]:
+    ) -> list[ScanResult]:
         """Fallback async clamscan with chunked execution."""
         results = []
         total = len(paths)
@@ -267,7 +268,7 @@ class ClamAVScanner:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await proc.communicate()
+            stdout, _stderr = await proc.communicate()
 
             chunk_results = self._parse_clamscan_output(stdout.decode())
             # Map results back to paths
@@ -283,7 +284,7 @@ class ClamAVScanner:
 
         return results
 
-    def _parse_clamscan_output(self, output: str) -> List[ScanResult]:
+    def _parse_clamscan_output(self, output: str) -> list[ScanResult]:
         """Parse clamscan --stdout output."""
         results = []
         for line in output.strip().split("\n"):
@@ -311,15 +312,19 @@ class ClamAVScanner:
         for path in db_paths:
             if os.path.exists(path):
                 mtime = os.path.getmtime(path)
-                return datetime.now().timestamp() - mtime
+                return datetime.now(timezone.utc).timestamp() - mtime
         return float("inf")
 
-    def get_database_version(self) -> Optional[str]:
+    def get_database_version(self) -> str | None:
         """Return ClamAV database version string."""
         try:
             result = subprocess.run(
-                ["clamscan", "--version"], capture_output=True, text=True, timeout=10
+                ["clamscan", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
             )
             return result.stdout.strip()
-        except Exception:
+        except (OSError, subprocess.TimeoutExpired):
             return None

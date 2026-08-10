@@ -33,6 +33,7 @@ import json
 import logging
 import sys
 import threading
+from typing import ClassVar
 
 logging.basicConfig(
     level=logging.INFO,
@@ -120,13 +121,13 @@ STATUS_NOTIFIER_ITEM_XML = """
 class TrayService:
     """Servizio tray StatusNotifierItem + DBusMenu, senza dipendenza GTK."""
 
-    ICON_MAP = {
+    ICON_MAP: ClassVar[dict[str, str]] = {
         "protected": "object-select-symbolic",
         "scanning": "view-refresh-symbolic",
         "warning": "dialog-warning-symbolic",
         "threat": "dialog-error-symbolic",
     }
-    SNI_STATUS_MAP = {
+    SNI_STATUS_MAP: ClassVar[dict[str, str]] = {
         "protected": "Active",
         "scanning": "Active",
         "warning": "NeedsAttention",
@@ -135,7 +136,7 @@ class TrayService:
 
     SNI_PATH = "/StatusNotifierItem"
     MENU_PATH = "/MenuBar"
-    WATCHER_NAMES = [
+    WATCHER_NAMES: ClassVar[list[str]] = [
         "org.x.StatusNotifierWatcher",
         "org.kde.StatusNotifierWatcher",
         "org.freedesktop.StatusNotifierWatcher",
@@ -169,7 +170,7 @@ class TrayService:
             self._rebuild_menu()
             self._dbusmenu_server.set_root(self._menu_root)
             logger.info(f"DBusMenu server inizializzato su {self.MENU_PATH}")
-        except Exception as e:
+        except (GLib.Error, ValueError) as e:
             logger.warning(f"Impossibile inizializzare DBusMenu: {e}")
             self._dbusmenu_server = None
             self._menu_root = None
@@ -280,7 +281,7 @@ class TrayService:
                 self._on_register_complete,
                 (watcher_name, watcher_index + 1),
             )
-        except Exception as e:
+        except (GLib.Error, ValueError) as e:
             logger.debug(f"Registrazione con {watcher_name} fallita: {e}")
             self._register_with_watcher(watcher_index + 1)
 
@@ -290,7 +291,7 @@ class TrayService:
             source.call_finish(result)
             self._watcher_registered = True
             logger.info(f"Registrato con {watcher_name}")
-        except Exception:
+        except (GLib.Error, ValueError):
             self._register_with_watcher(next_index)
 
     def _schedule_watcher_retry(self):
@@ -323,9 +324,7 @@ class TrayService:
         if method_name == "Activate":
             self._send_action("toggle_window")
             invocation.return_value(None)
-        elif method_name in ("ContextMenu", "SecondaryActivate"):
-            invocation.return_value(None)
-        elif method_name == "Scroll":
+        elif method_name in ("ContextMenu", "SecondaryActivate") or method_name == "Scroll":
             invocation.return_value(None)
         else:
             invocation.return_dbus_error(
@@ -372,7 +371,7 @@ class TrayService:
                 self._bus.emit_signal(
                     None, self.SNI_PATH, "org.kde.StatusNotifierItem", signal_name, args
                 )
-            except Exception as e:
+            except (GLib.Error, ValueError) as e:
                 logger.error(f"Emit {signal_name} fallito: {e}")
 
     # --- IPC (stdin/stdout) ---
@@ -381,7 +380,7 @@ class TrayService:
         try:
             sys.stdout.write(json.dumps(message) + "\n")
             sys.stdout.flush()
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.error(f"Scrittura IPC fallita: {e}")
 
     def _send_action(self, action):
@@ -424,7 +423,7 @@ class TrayService:
                     logger.error("Comando IPC scartato: non è un oggetto JSON")
                     continue
                 self.handle_command(command)
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.error(f"Errore lettura stdin: {e}")
         finally:
             GLib.idle_add(self._quit)
@@ -456,7 +455,7 @@ class TrayService:
 def main():
     try:
         TrayService().run()
-    except Exception as e:
+    except (GLib.Error, OSError, ValueError) as e:
         logger.error(f"Errore tray service: {e}")
         print(json.dumps({"event": "error", "message": str(e)}), flush=True)
         sys.exit(1)

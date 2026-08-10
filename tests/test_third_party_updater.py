@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-import unittest
-import tempfile
 import os
+import tempfile
+import unittest
+
 from src.core.third_party_db import ThirdPartyDBManager
 
 

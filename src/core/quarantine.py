@@ -3,16 +3,16 @@
 QuarantineManager — Secure file isolation with SHA-256 and optional encryption
 """
 
-import os
 import hashlib
 import logging
+import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
-from datetime import datetime
-from typing import List, Optional
+
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from . import paths
 
@@ -48,7 +48,7 @@ class QuarantineEntry:
         original_path: str,
         quarantine_path: str,
         file_hash: str,
-        virus_name: Optional[str],
+        virus_name: str | None,
         timestamp: datetime,
         encrypted: bool = False,
     ):
@@ -65,7 +65,7 @@ class QuarantineManager:
     """Manages quarantined files with integrity verification and optional encryption."""
 
     def __init__(
-        self, quarantine_dir: Optional[str] = None, db_path: Optional[str] = None
+        self, quarantine_dir: str | None = None, db_path: str | None = None
     ):
         self.quarantine_dir = quarantine_dir or paths.app_data_dir("quarantine")
         self.db_path = db_path or paths.app_data_dir("quarantine.db")
@@ -73,15 +73,15 @@ class QuarantineManager:
         os.makedirs(self.quarantine_dir, mode=0o700, exist_ok=True)
         try:
             os.chmod(self.quarantine_dir, 0o700)
-        except Exception:
-            pass
+        except OSError as e:
+            logger.warning(f"Could not set permissions on quarantine dir: {e}")
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._init_db()
         try:
             if os.path.exists(self.db_path):
                 os.chmod(self.db_path, 0o600)
-        except Exception:
-            pass
+        except OSError as e:
+            logger.warning(f"Could not set permissions on {self.db_path}: {e}")
 
     def _init_db(self):
         with sqlite3.connect(self.db_path) as conn:
@@ -129,7 +129,7 @@ class QuarantineManager:
             return salt
 
     def set_encryption(
-        self, password: Optional[str] = None, key: Optional[bytes] = None
+        self, password: str | None = None, key: bytes | None = None
     ):
         """Enable AES-256-GCM encryption."""
         if key:
@@ -146,7 +146,7 @@ class QuarantineManager:
         else:
             self._cipher = None
 
-    def quarantine(self, file_path: str, virus_name: Optional[str] = None) -> bool:
+    def quarantine(self, file_path: str, virus_name: str | None = None) -> bool:
         """Move file to quarantine with optional encryption."""
         try:
             src = Path(file_path)
@@ -161,7 +161,7 @@ class QuarantineManager:
                 return False
 
             file_hash = hashlib.sha256(src.read_bytes()).hexdigest()
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             q_filename = f"{timestamp}_{src.name}"
             q_path = os.path.join(self.quarantine_dir, q_filename)
 
@@ -191,7 +191,7 @@ class QuarantineManager:
                         q_path,
                         file_hash,
                         virus_name,
-                        datetime.now().timestamp(),
+                        datetime.now(timezone.utc).timestamp(),
                         int(encrypted),
                     ),
                 )
@@ -199,11 +199,11 @@ class QuarantineManager:
 
             logger.info(f"Quarantined {file_path} as ID {entry_id}")
             return True
-        except Exception as e:
+        except (OSError, ValueError, sqlite3.Error) as e:
             logger.error(f"Quarantine failed: {e}")
             return False
 
-    def restore(self, entry_id: int, destination: Optional[str] = None) -> bool:
+    def restore(self, entry_id: int, destination: str | None = None) -> bool:
         """Restore file from quarantine after integrity check."""
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -252,7 +252,7 @@ class QuarantineManager:
 
             logger.info(f"Restored entry {entry_id} to {dest}")
             return True
-        except Exception as e:
+        except (OSError, ValueError, sqlite3.Error) as e:
             logger.error(f"Restore failed: {e}")
             return False
 
@@ -267,11 +267,11 @@ class QuarantineManager:
                     os.unlink(row[0])
                 conn.execute("DELETE FROM quarantine WHERE id=?", (entry_id,))
             return True
-        except Exception as e:
+        except (OSError, ValueError, sqlite3.Error) as e:
             logger.error(f"Delete failed: {e}")
             return False
 
-    def list_entries(self) -> List[QuarantineEntry]:
+    def list_entries(self) -> list[QuarantineEntry]:
         """List all active quarantine entries."""
         entries = []
         with sqlite3.connect(self.db_path) as conn:
@@ -285,7 +285,7 @@ class QuarantineManager:
                         quarantine_path=row[2],
                         file_hash=row[3],
                         virus_name=row[4],
-                        timestamp=datetime.fromtimestamp(row[5]),
+                        timestamp=datetime.fromtimestamp(row[5], tz=timezone.utc),
                         encrypted=bool(row[6]),
                     )
                 )

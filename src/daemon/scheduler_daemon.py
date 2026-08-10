@@ -4,6 +4,7 @@ SchedulerDaemon — Gestore scansioni pianificate via systemd timer
 """
 
 import logging
+
 from ..core.clamav import ClamAVScanner
 from ..core.history import HistoryManager
 
@@ -27,7 +28,7 @@ class SchedulerDaemon:
                 scan_id, len(results), threats, [r.to_dict() for r in results]
             )
             logger.info(f"Scheduled scan complete: {threats} threats found")
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.error(f"Scheduled scan failed: {e}")
 
 

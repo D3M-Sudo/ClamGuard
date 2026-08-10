@@ -3,10 +3,9 @@
 FreshclamManager — Wrapper for official ClamAV definition updates
 """
 
-import os
 import logging
+import os
 import subprocess
-from typing import Optional
 
 logger = logging.getLogger("alpha.freshclam")
 
@@ -14,7 +13,7 @@ logger = logging.getLogger("alpha.freshclam")
 class FreshclamManager:
     """Manages official ClamAV database updates via freshclam."""
 
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_path: str | None = None):
         self.config_path = config_path or "/etc/clamav/freshclam.conf"
         self._binary = self._find_binary()
 
@@ -38,6 +37,7 @@ class FreshclamManager:
                 capture_output=True,
                 text=True,
                 timeout=600,
+                check=False,
             )
             success = result.returncode == 0
             output = result.stdout + result.stderr
@@ -49,7 +49,7 @@ class FreshclamManager:
         except subprocess.TimeoutExpired:
             logger.error("freshclam timed out")
             return False, "Update timed out after 10 minutes"
-        except Exception as e:
+        except OSError as e:
             logger.error(f"freshclam error: {e}")
             return False, str(e)
 
@@ -68,6 +68,6 @@ class FreshclamManager:
                             status.setdefault("mirrors", []).append(line.split()[1])
                         elif line.startswith("Checks"):
                             status["checks_per_day"] = int(line.split()[1])
-            except Exception as e:
+            except (OSError, ValueError) as e:
                 logger.error(f"Error reading freshclam.conf: {e}")
         return status

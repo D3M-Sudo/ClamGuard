@@ -12,11 +12,11 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import GLib, Gio, Gtk, Adw
+from gi.repository import Adw, Gio, GLib, Gtk
 
 from .core.clamav import ClamAVScanner
-from .core.quarantine import QuarantineManager
 from .core.history import HistoryManager
+from .core.quarantine import QuarantineManager
 from .core.third_party_db import ThirdPartyDBManager
 from .services.clamd_service import ClamdService
 from .services.polkit import PolkitHelper
@@ -638,7 +638,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             paths = [f.get_path() for f in files]
             if paths:
                 self.start_scan(paths)
-        except Exception as e:
+        except (GLib.Error, ValueError) as e:
             logger.error(f"File dialog error: {e}")
 
     def _on_quarantine_click(self, btn):
@@ -703,7 +703,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
     def _run_scan_thread(self, paths, scan_id):
         try:
             results = asyncio.run(self._clamav.scan_paths(paths))
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.error(f"Scan failed: {e}")
             GLib.idle_add(self._on_scan_error, str(e))
             return
@@ -829,7 +829,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
                 update_text = f"Updated: {int(db_age // 86400)}d ago"
             self._update_label.set_text(update_text)
 
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.error(f"Status update error: {e}")
 
         return True  # Continue timeout

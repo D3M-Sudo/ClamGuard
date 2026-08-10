@@ -156,12 +156,18 @@ def _reload_clamd() -> None:
         return
     for unit in _CLAMD_UNITS:
         active = subprocess.run(
-            ["systemctl", "is-active", "--quiet", unit], capture_output=True, text=True
+            ["systemctl", "is-active", "--quiet", unit],
+            capture_output=True,
+            text=True,
+            check=False,
         )
         if active.returncode != 0:
             continue
         result = subprocess.run(
-            ["systemctl", "reload-or-restart", unit], capture_output=True, text=True
+            ["systemctl", "reload-or-restart", unit],
+            capture_output=True,
+            text=True,
+            check=False,
         )
         if result.returncode != 0:
             error = (
@@ -221,7 +227,7 @@ def main(argv=None) -> int:
         for source, destination in pairs:
             src_fd = _open_and_validate_source(source, uid, staging_root)
             validated.append((src_fd, destination))
-    except Exception as error:
+    except (ValueError, OSError) as error:
         for src_fd, _destination in validated:
             try:
                 os.close(src_fd)
@@ -237,7 +243,7 @@ def main(argv=None) -> int:
             _atomic_install(src_fd, destination)
             installed += 1
         _reload_clamd()
-    except Exception as error:
+    except (OSError, shutil.Error) as error:
         for src_fd, _destination in validated[installed + 1 :]:
             try:
                 os.close(src_fd)
