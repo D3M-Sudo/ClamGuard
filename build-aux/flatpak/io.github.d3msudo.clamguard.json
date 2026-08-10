@@ -169,6 +169,13 @@
                     "path": "."
                 }
             ]
+        },
+        {
+            "name": "post-install",
+            "buildsystem": "simple",
+            "build-commands": [
+                "glib-compile-schemas /app/share/glib-2.0/schemas"
+            ]
         }
     ]
 }
