@@ -33,5 +33,5 @@ repo/
 Thumbs.db
 
 # Misc
-bug report/
+docs/reports/
 *.log
