@@ -77,9 +77,7 @@ class VirusTotalClient:
             time.sleep(self._min_interval - elapsed)
         self._last_request = time.time()
 
-    def lookup_file(
-        self, file_path: str, force_refresh: bool = False
-    ) -> dict | None:
+    def lookup_file(self, file_path: str, force_refresh: bool = False) -> dict | None:
         """Lookup file by SHA-256 hash with cache."""
         if not self._session:
             return None
@@ -93,7 +91,9 @@ class VirusTotalClient:
                     "SELECT response_json, cached_at, malicious, total FROM vt_cache WHERE file_hash=?",
                     (file_hash,),
                 ).fetchone()
-                if row and datetime.now(timezone.utc).timestamp() - row[1] < 86400:  # 24h cache
+                if (
+                    row and datetime.now(timezone.utc).timestamp() - row[1] < 86400
+                ):  # 24h cache
                     import json
 
                     return json.loads(row[0])

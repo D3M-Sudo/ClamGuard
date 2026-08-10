@@ -204,8 +204,10 @@ def install_privileged_helper(prefix: str = "/") -> tuple[bool, str]:
 
     return (
         True,
-        (f"Helper installato in {bin_path} e policy polkit in {policy_dst}. "
-        "ClamGuard può ora installare le firme di terze parti nel database di sistema."),
+        (
+            f"Helper installato in {bin_path} e policy polkit in {policy_dst}. "
+            "ClamGuard può ora installare le firme di terze parti nel database di sistema."
+        ),
     )
 
 

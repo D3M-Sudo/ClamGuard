@@ -324,7 +324,10 @@ class TrayService:
         if method_name == "Activate":
             self._send_action("toggle_window")
             invocation.return_value(None)
-        elif method_name in ("ContextMenu", "SecondaryActivate") or method_name == "Scroll":
+        elif (
+            method_name in ("ContextMenu", "SecondaryActivate")
+            or method_name == "Scroll"
+        ):
             invocation.return_value(None)
         else:
             invocation.return_dbus_error(

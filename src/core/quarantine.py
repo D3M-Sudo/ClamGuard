@@ -64,9 +64,7 @@ class QuarantineEntry:
 class QuarantineManager:
     """Manages quarantined files with integrity verification and optional encryption."""
 
-    def __init__(
-        self, quarantine_dir: str | None = None, db_path: str | None = None
-    ):
+    def __init__(self, quarantine_dir: str | None = None, db_path: str | None = None):
         self.quarantine_dir = quarantine_dir or paths.app_data_dir("quarantine")
         self.db_path = db_path or paths.app_data_dir("quarantine.db")
         self._cipher = None
@@ -128,9 +126,7 @@ class QuarantineManager:
             conn.execute("INSERT INTO kdf_salt (id, salt) VALUES (1, ?)", (salt,))
             return salt
 
-    def set_encryption(
-        self, password: str | None = None, key: bytes | None = None
-    ):
+    def set_encryption(self, password: str | None = None, key: bytes | None = None):
         """Enable AES-256-GCM encryption."""
         if key:
             self._cipher = AESGCMCipher(key)
