@@ -77,7 +77,7 @@ Please report any security vulnerabilities including but not limited to:
 - Background daemon entry points invoked by systemd units
   (`src/daemon/updater_daemon.py`, `src/daemon/scheduler_daemon.py`, `src/daemon/cli.py`)
 - Flatpak sandbox permissions and host command spawning
-  (`io.github.d3msudo.clamguard.json`)
+  (`build-aux/flatpak/io.github.d3msudo.clamguard.json`)
 
 ## What NOT to Report
 

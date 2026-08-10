@@ -44,7 +44,7 @@ pipeline CI/build:
 | Dashboard Bitdefender-style | Implementato | `src/window.py`, `src/ui/views` |
 | Daemon firme terze con stato SQLite | Implementato | `src/core/third_party_db.py`, `src/daemon/updater_daemon.py` |
 | Quarantena con cifratura opzionale (AES-256-GCM/Fernet) | Implementato | `src/core/quarantine.py` |
-| Flatpak hardening (permessi minimi, portali, `--persist`) | Implementato | `io.github.d3msudo.clamguard.json` |
+| Flatpak hardening (permessi minimi, portali, `--persist`) | Implementato | `build-aux/flatpak/io.github.d3msudo.clamguard.json` |
 | System tray dual-mode | Implementato | `src/services/tray_manager.py`, `src/services/tray_service.py` |
 | Async I/O su clamd socket | Implementato | `src/core/clamav.py` |
 | VirusTotal v3 con cache locale | Implementato | `src/core/virustotal.py` |

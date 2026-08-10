@@ -25,7 +25,7 @@ sudo meson install -C build
 
 ### Flatpak
 ```bash
-flatpak-builder --repo=repo build io.github.d3msudo.clamguard.json
+flatpak-builder --repo=repo build build-aux/flatpak/io.github.d3msudo.clamguard.json
 ```
 
 ### Debian

@@ -11,6 +11,6 @@ jobs:
       - uses: actions/checkout@v7
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          manifest-path: io.github.d3msudo.clamguard.json
+          manifest-path: build-aux/flatpak/io.github.d3msudo.clamguard.json
           cache-key: flatpak-builder-${{ github.sha }}
           bundle: clamguard.flatpak
