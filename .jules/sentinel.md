@@ -2,6 +2,11 @@
 
 This journal documents critical, repository-specific security vulnerabilities, learnings, and prevention methods for ClamGuard.
 
+## 2026-08-11 - CSV Formula Injection Prevention in Scan History Exports
+**Vulnerability:** The scan history CSV export feature allowed user-controlled scan targets (such as file or directory paths containing formula injection characters like `=`, `+`, `-`, `@`, `\t`, or `\r`) to be written directly into the generated CSV file. This could lead to CSV Formula Injection (CWE-1236), executing arbitrary commands or formulas on the system of any administrator or user opening the exported spreadsheet.
+**Learning:** Even internal metadata (like file paths or target directory names) must be sanitized before exporting to public formats like CSV, as those strings might contain user-controllable or attacker-crafted names that spreadsheet applications interpret as executable expressions.
+**Prevention:** Always sanitize all string fields written to CSV exports by prepending a single quote (`'`) to any cell value that starts with formula characters (`=`, `+`, `-`, `@`, `\t`, `\r`).
+
 ## 2026-08-10 - Secure Database and Cache Hardening
 **Vulnerability:** Core application databases (including SQLite databases for history, quarantine metadata, VirusTotal cache, and third-party databases) were created using default system umask permissions (often 0o644 or 0o755), allowing local non-owner users to read sensitive scan histories, threat metadata, and cached VirusTotal analysis reports. Additionally, the VirusTotal cache was configured to default to root-only paths (`/var/lib/clamguard`), which causes runtime PermissionError crashes for zero-privilege user-space environments (such as Flatpak sandboxes).
 **Learning:** For desktop applications operating under a zero-privilege or sandboxed model, local files containing sensitive metadata (such as scan logs, encryption salts, and cached external API reports) must reside inside user-writable directories (e.g. XDG app data) and have their file permissions explicitly hardened to owner-only access (`0o600`) right after initialization.
