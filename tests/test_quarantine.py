@@ -71,6 +71,15 @@ class TestQuarantine(unittest.TestCase):
         q2 = QuarantineManager(quarantine_dir=other_dir, db_path=os.path.join(other_dir, "enc.db"))
         self.assertNotEqual(q1._get_or_create_salt(), q2._get_or_create_salt())
 
+    def test_quarantine_db_permissions(self):
+        """Verify that the quarantine database file has secure 0o600 permissions."""
+        db_path = os.path.join(self.tmpdir, "test_perm.db")
+        q = QuarantineManager(quarantine_dir=self.tmpdir, db_path=db_path)
+        self.assertIsNotNone(q)
+        self.assertTrue(os.path.exists(db_path))
+        mode = os.stat(db_path).st_mode & 0o777
+        self.assertEqual(mode, 0o600)
+
 
 if __name__ == "__main__":
     unittest.main()

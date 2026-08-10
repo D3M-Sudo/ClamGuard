@@ -1,0 +1,6 @@
+# Sentinel's Journal - ClamGuard
+
+## 2026-08-10 - Secure Database and Cache Hardening
+**Vulnerability:** Core application databases (including SQLite databases for history, quarantine metadata, VirusTotal cache, and third-party databases) were created using default system umask permissions (often 0o644 or 0o755), allowing local non-owner users to read sensitive scan histories, threat metadata, and cached VirusTotal analysis reports. Additionally, the VirusTotal cache was configured to default to root-only paths (`/var/lib/clamguard`), which causes runtime PermissionError crashes for zero-privilege user-space environments (such as Flatpak sandboxes).
+**Learning:** For desktop applications operating under a zero-privilege or sandboxed model, local files containing sensitive metadata (such as scan logs, encryption salts, and cached external API reports) must reside inside user-writable directories (e.g. XDG app data) and have their file permissions explicitly hardened to owner-only access (`0o600`) right after initialization.
+**Prevention:** Always use XDG base directory specification helpers to locate application databases and secure created files explicitly using standard file permission controls (e.g., `os.chmod(db_path, 0o600)`) within defensive `try-except` blocks.

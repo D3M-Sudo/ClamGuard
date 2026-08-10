@@ -44,6 +44,10 @@ class HistoryManager:
         self.db_path = db_path or paths.app_data_dir("history.db")
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._init_db()
+        try:
+            os.chmod(self.db_path, 0o600)
+        except Exception:
+            pass
 
     def _init_db(self):
         with sqlite3.connect(self.db_path) as conn:
