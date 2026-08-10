@@ -154,7 +154,14 @@ class HistoryManager:
     def export_csv(self, path: str, scan_id: Optional[int] = None):
         import csv
 
-        with sqlite3.connect(self.db_path) as conn, open(path, "w", newline="") as f:
+        def _sanitize_csv_value(val):
+            # Previene CSV Formula Injection (CWE-1236) anteponendo un apice singolo
+            # a qualsiasi stringa che inizia con caratteri di formula potenzialmente dannosi.
+            if isinstance(val, str) and val and val[0] in ("=", "+", "-", "@", "\t", "\r"):
+                return "'" + val
+            return val
+
+        with sqlite3.connect(self.db_path) as conn, open(path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(
                 ["ID", "Type", "Target", "Start", "End", "Files", "Threats"]
@@ -166,4 +173,5 @@ class HistoryManager:
                 params = (scan_id,)
             query += " ORDER BY start_time DESC"
             for row in conn.execute(query, params):
-                writer.writerow(row[:7])
+                sanitized_row = [_sanitize_csv_value(cell) for cell in row[:7]]
+                writer.writerow(sanitized_row)
