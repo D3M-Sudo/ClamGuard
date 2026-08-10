@@ -13,7 +13,6 @@ from typing import List, Optional
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-import base64
 
 from . import paths
 
@@ -37,6 +36,7 @@ class AESGCMCipher:
         nonce = data[:12]
         ciphertext = data[12:]
         return self.aesgcm.decrypt(nonce, ciphertext, None)
+
 
 logger = logging.getLogger("alpha.quarantine")
 
