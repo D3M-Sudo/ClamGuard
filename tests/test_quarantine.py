@@ -83,14 +83,46 @@ class TestQuarantine(unittest.TestCase):
         )
         self.assertNotEqual(q1._get_or_create_salt(), q2._get_or_create_salt())
 
-    def test_quarantine_db_permissions(self):
-        """Verify that the quarantine database file has secure 0o600 permissions."""
-        db_path = os.path.join(self.tmpdir, "test_perm.db")
-        q = QuarantineManager(quarantine_dir=self.tmpdir, db_path=db_path)
-        self.assertIsNotNone(q)
-        self.assertTrue(os.path.exists(db_path))
-        mode = os.stat(db_path).st_mode & 0o777
-        self.assertEqual(mode, 0o600)
+    def test_symlink_quarantine_prevention(self):
+        """Ensure that quarantine refuses to process symbolic links to prevent traversal."""
+        target_file = os.path.join(self.tmpdir, "target.txt")
+        with open(target_file, "w") as f:
+            f.write("some content")
+        link_file = os.path.join(self.tmpdir, "symlink.txt")
+        os.symlink(target_file, link_file)
+
+        self.assertFalse(self.q.quarantine(link_file, "Test.Virus"))
+        self.assertTrue(os.path.exists(link_file))
+
+    def test_symlink_restore_prevention(self):
+        """Ensure that restore refuses to overwrite or traverse symbolic links."""
+        testfile = os.path.join(self.tmpdir, "test_sym.txt")
+        with open(testfile, "w") as f:
+            f.write("infected content")
+        self.assertTrue(self.q.quarantine(testfile, "Test.Virus"))
+        entries = self.q.list_entries()
+        self.assertEqual(len(entries), 1)
+
+        # Create a symlink at the restore destination
+        dest_target = os.path.join(self.tmpdir, "real_dest.txt")
+        with open(dest_target, "w") as f:
+            f.write("safe content")
+        dest_link = os.path.join(self.tmpdir, "symlink_dest.txt")
+        os.symlink(dest_target, dest_link)
+
+        # Restore to the symlink path should fail
+        self.assertFalse(self.q.restore(entries[0].id, dest_link))
+        # Ensure target file was NOT overwritten
+        with open(dest_target, "r") as f:
+            self.assertEqual(f.read(), "safe content")
+
+    def test_database_permissions(self):
+        """Ensure that the quarantine database file is initialized with 0o600 permissions."""
+        self.assertTrue(os.path.exists(self.q.db_path))
+        mode = os.stat(self.q.db_path).st_mode & 0o777
+        self.assertEqual(
+            mode, 0o600, f"Expected database permissions to be 0o600, got {oct(mode)}"
+        )
 
 
 if __name__ == "__main__":

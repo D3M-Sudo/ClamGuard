@@ -10,12 +10,33 @@ import sqlite3
 from pathlib import Path
 from datetime import datetime
 from typing import List, Optional
-from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-import base64
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from . import paths
+
+
+class AESGCMCipher:
+    """AES-256-GCM cipher wrapper validating Auth Tag (MAC) before completion."""
+
+    def __init__(self, key: bytes):
+        if len(key) != 32:
+            key = hashlib.sha256(key).digest()
+        self.aesgcm = AESGCM(key)
+
+    def encrypt(self, data: bytes) -> bytes:
+        nonce = os.urandom(12)
+        ciphertext = self.aesgcm.encrypt(nonce, data, None)
+        return nonce + ciphertext
+
+    def decrypt(self, data: bytes) -> bytes:
+        if len(data) < 12:
+            raise ValueError("Ciphertext too short")
+        nonce = data[:12]
+        ciphertext = data[12:]
+        return self.aesgcm.decrypt(nonce, ciphertext, None)
+
 
 logger = logging.getLogger("alpha.quarantine")
 
@@ -50,10 +71,15 @@ class QuarantineManager:
         self.db_path = db_path or paths.app_data_dir("quarantine.db")
         self._cipher = None
         os.makedirs(self.quarantine_dir, mode=0o700, exist_ok=True)
+        try:
+            os.chmod(self.quarantine_dir, 0o700)
+        except Exception:
+            pass
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._init_db()
         try:
-            os.chmod(self.db_path, 0o600)
+            if os.path.exists(self.db_path):
+                os.chmod(self.db_path, 0o600)
         except Exception:
             pass
 
@@ -105,9 +131,9 @@ class QuarantineManager:
     def set_encryption(
         self, password: Optional[str] = None, key: Optional[bytes] = None
     ):
-        """Enable AES-256-GCM encryption via Fernet."""
+        """Enable AES-256-GCM encryption."""
         if key:
-            self._cipher = Fernet(key)
+            self._cipher = AESGCMCipher(key)
         elif password:
             kdf = PBKDF2HMAC(
                 algorithm=hashes.SHA256(),
@@ -115,8 +141,8 @@ class QuarantineManager:
                 salt=self._get_or_create_salt(),
                 iterations=480000,
             )
-            key = base64.urlsafe_b64encode(kdf.derive(password.encode()))
-            self._cipher = Fernet(key)
+            key = kdf.derive(password.encode())
+            self._cipher = AESGCMCipher(key)
         else:
             self._cipher = None
 
@@ -126,6 +152,12 @@ class QuarantineManager:
             src = Path(file_path)
             if not src.exists():
                 logger.error(f"File not found: {file_path}")
+                return False
+
+            if src.is_symlink() or os.path.islink(file_path):
+                logger.error(
+                    f"File is a symbolic link, refusing to quarantine: {file_path}"
+                )
                 return False
 
             file_hash = hashlib.sha256(src.read_bytes()).hexdigest()
@@ -191,6 +223,13 @@ class QuarantineManager:
                     row[6],
                 )
                 dest = destination or original_path
+                dest_path = Path(dest)
+
+                if dest_path.is_symlink() or os.path.islink(dest):
+                    logger.error(
+                        f"Restore target is a symbolic link: {dest}. Aborting to prevent symlink traversal."
+                    )
+                    return False
 
                 with open(q_path, "rb") as f:
                     data = f.read()

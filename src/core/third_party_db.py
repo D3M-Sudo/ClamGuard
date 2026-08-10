@@ -102,7 +102,8 @@ class ThirdPartyDBManager:
         self.providers: List[SignatureProvider] = []
         self._init_db()
         try:
-            os.chmod(self.db_path, 0o600)
+            if os.path.exists(self.db_path):
+                os.chmod(self.db_path, 0o600)
         except Exception:
             pass
         self._load_providers()

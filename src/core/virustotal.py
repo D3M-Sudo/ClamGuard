@@ -51,7 +51,8 @@ class VirusTotalClient:
         os.makedirs(os.path.dirname(self.cache_db), exist_ok=True)
         self._init_cache()
         try:
-            os.chmod(self.cache_db, 0o600)
+            if os.path.exists(self.cache_db):
+                os.chmod(self.cache_db, 0o600)
         except Exception:
             pass
 
@@ -101,7 +102,9 @@ class VirusTotalClient:
         # API request
         self._rate_limit()
         try:
-            resp = self._session.get(f"{VT_API_BASE}/files/{file_hash}", timeout=60)
+            resp = self._session.get(
+                f"{VT_API_BASE}/files/{file_hash}", timeout=(5, 15)
+            )
             resp.raise_for_status()
             data = resp.json().get("data", {})
 
@@ -134,6 +137,18 @@ class VirusTotalClient:
                     ),
                 )
             return result
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 429:
+                logger.error(f"VirusTotal API rate limit reached (HTTP 429): {e}")
+            else:
+                logger.error(f"VirusTotal HTTP error: {e}")
+            return None
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"VirusTotal connection failed: {e}")
+            return None
+        except requests.exceptions.Timeout as e:
+            logger.error(f"VirusTotal request timed out: {e}")
+            return None
         except Exception as e:
             logger.error(f"VT lookup failed: {e}")
             return None
@@ -148,10 +163,22 @@ class VirusTotalClient:
                 resp = self._session.post(
                     f"{VT_API_BASE}/files",
                     files={"file": (os.path.basename(file_path), f.read())},
-                    timeout=300,
+                    timeout=(5, 30),
                 )
             resp.raise_for_status()
             return resp.json().get("data", {}).get("id")
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 429:
+                logger.error(f"VirusTotal API rate limit reached (HTTP 429): {e}")
+            else:
+                logger.error(f"VirusTotal HTTP error: {e}")
+            return None
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"VirusTotal connection failed: {e}")
+            return None
+        except requests.exceptions.Timeout as e:
+            logger.error(f"VirusTotal request timed out: {e}")
+            return None
         except Exception as e:
             logger.error(f"VT upload failed: {e}")
             return None
