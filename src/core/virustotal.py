@@ -12,6 +12,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict
 
+from . import paths
+
 logger = logging.getLogger("clamguard.virustotal")
 
 # Optional dependency — gracefully degrade if not installed
@@ -32,15 +34,26 @@ class VirusTotalClient:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        cache_db: str = "/var/lib/clamguard/virustotal_cache.db",
+        cache_db: Optional[str] = None,
     ):
         self.api_key = api_key or os.environ.get("VIRUSTOTAL_API_KEY")
-        self.cache_db = cache_db
+        if not self.api_key:
+            try:
+                from ..services.credentials import CredentialsService
+
+                self.api_key = CredentialsService().get_vt_key()
+            except Exception:
+                pass
+        self.cache_db = cache_db or paths.app_data_dir("virustotal_cache.db")
         self._session = None
         self._last_request = 0
         self._min_interval = 15.0  # Public API: 4 req/min
-        os.makedirs(os.path.dirname(cache_db), exist_ok=True)
+        os.makedirs(os.path.dirname(self.cache_db), exist_ok=True)
         self._init_cache()
+        try:
+            os.chmod(self.cache_db, 0o600)
+        except Exception:
+            pass
 
         if REQUESTS_AVAILABLE and self.api_key:
             self._session = requests.Session()

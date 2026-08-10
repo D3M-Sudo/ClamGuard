@@ -52,6 +52,10 @@ class QuarantineManager:
         os.makedirs(self.quarantine_dir, mode=0o700, exist_ok=True)
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._init_db()
+        try:
+            os.chmod(self.db_path, 0o600)
+        except Exception:
+            pass
 
     def _init_db(self):
         with sqlite3.connect(self.db_path) as conn:

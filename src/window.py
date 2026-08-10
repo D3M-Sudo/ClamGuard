@@ -110,6 +110,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         # Left: Menu button
         menu_button = Gtk.MenuButton()
         menu_button.set_icon_name("open-menu-symbolic")
+        menu_button.set_tooltip_text("Main Menu")
         menu = Gio.Menu()
         menu.append("Preferences", "app.preferences")
         menu.append("About ClamGuard", "app.about")
@@ -436,12 +437,25 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._refresh_quarantine_view()
 
     def _on_delete_clicked(self, button, entry_id):
-        success = self._quarantine.delete(entry_id)
-        self._show_toast(
-            "File deleted" if success else "Deletion failed",
-            Adw.ToastPriority.NORMAL if success else Adw.ToastPriority.HIGH,
+        dialog = Adw.MessageDialog(
+            transient_for=self,
+            heading="Delete file permanently?",
+            body="This action cannot be undone. The quarantined file will be permanently deleted.",
         )
-        self._refresh_quarantine_view()
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("delete", "Delete")
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.connect("response", self._on_delete_confirm_response, entry_id)
+        dialog.present()
+
+    def _on_delete_confirm_response(self, dialog, response, entry_id):
+        if response == "delete":
+            success = self._quarantine.delete(entry_id)
+            self._show_toast(
+                "File deleted" if success else "Deletion failed",
+                Adw.ToastPriority.NORMAL if success else Adw.ToastPriority.HIGH,
+            )
+            self._refresh_quarantine_view()
 
     def _build_history_view(self):
         """View reale dello storico scansioni, collegata a HistoryManager."""
