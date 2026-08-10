@@ -60,7 +60,9 @@ class TestPrivilegedPaths(unittest.TestCase):
         fd = os.open(staged, os.O_RDONLY | os.O_NOFOLLOW)
         try:
             with self.assertRaises(ValueError):
-                validate_source_for_uid(fd, Path(staged), os.getuid(), Path(self.tmpdir))
+                validate_source_for_uid(
+                    fd, Path(staged), os.getuid(), Path(self.tmpdir)
+                )
         finally:
             os.close(fd)
 

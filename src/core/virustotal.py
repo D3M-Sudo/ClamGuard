@@ -93,7 +93,9 @@ class VirusTotalClient:
         # API request
         self._rate_limit()
         try:
-            resp = self._session.get(f"{VT_API_BASE}/files/{file_hash}", timeout=(5, 15))
+            resp = self._session.get(
+                f"{VT_API_BASE}/files/{file_hash}", timeout=(5, 15)
+            )
             resp.raise_for_status()
             data = resp.json().get("data", {})
 

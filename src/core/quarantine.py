@@ -155,7 +155,9 @@ class QuarantineManager:
                 return False
 
             if src.is_symlink() or os.path.islink(file_path):
-                logger.error(f"File is a symbolic link, refusing to quarantine: {file_path}")
+                logger.error(
+                    f"File is a symbolic link, refusing to quarantine: {file_path}"
+                )
                 return False
 
             file_hash = hashlib.sha256(src.read_bytes()).hexdigest()
@@ -224,7 +226,9 @@ class QuarantineManager:
                 dest_path = Path(dest)
 
                 if dest_path.is_symlink() or os.path.islink(dest):
-                    logger.error(f"Restore target is a symbolic link: {dest}. Aborting to prevent symlink traversal.")
+                    logger.error(
+                        f"Restore target is a symbolic link: {dest}. Aborting to prevent symlink traversal."
+                    )
                     return False
 
                 with open(q_path, "rb") as f:

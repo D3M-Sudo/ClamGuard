@@ -124,6 +124,7 @@ class ClamAVScanner:
     ) -> List[ScanResult]:
         """Stream scan via clamd UNIX socket using asyncio."""
         import socket
+
         results = []
         total = len(paths)
 
@@ -142,9 +143,15 @@ class ClamAVScanner:
 
                 if result.error:
                     err_lower = result.error.lower()
-                    if "denied" in err_lower or "permission" in err_lower or "access" in err_lower:
+                    if (
+                        "denied" in err_lower
+                        or "permission" in err_lower
+                        or "access" in err_lower
+                    ):
                         # Fallback to INSTREAM if permission denied
-                        logger.warning(f"Permission denied for clamd on {path}. Falling back to INSTREAM.")
+                        logger.warning(
+                            f"Permission denied for clamd on {path}. Falling back to INSTREAM."
+                        )
                         result = await self._scan_file_instream(path)
 
                 results.append(result)
@@ -171,6 +178,7 @@ class ClamAVScanner:
         """Stream a file to clamd using the INSTREAM command."""
         import struct
         import socket
+
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_unix_connection(self.socket_path), timeout=10
@@ -249,7 +257,10 @@ class ClamAVScanner:
                 if os.path.isdir(extra_dir):
                     db_args += ["--database", extra_dir]
             cmd = (
-                ["clamscan", "--infected", "--no-summary", "--stdout"] + db_args + ["--"] + chunk
+                ["clamscan", "--infected", "--no-summary", "--stdout"]
+                + db_args
+                + ["--"]
+                + chunk
             )
             proc = await asyncio.create_subprocess_exec(
                 *cmd,

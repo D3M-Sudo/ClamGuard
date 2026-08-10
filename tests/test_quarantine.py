@@ -8,7 +8,9 @@ from src.core.quarantine import QuarantineManager
 class TestQuarantine(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.q = QuarantineManager(quarantine_dir=self.tmpdir, db_path=os.path.join(self.tmpdir, "q.db"))
+        self.q = QuarantineManager(
+            quarantine_dir=self.tmpdir, db_path=os.path.join(self.tmpdir, "q.db")
+        )
 
     def test_quarantine_and_restore(self):
         testfile = os.path.join(self.tmpdir, "test.txt")
@@ -17,7 +19,9 @@ class TestQuarantine(unittest.TestCase):
         self.assertTrue(self.q.quarantine(testfile, "Test.Virus"))
         entries = self.q.list_entries()
         self.assertEqual(len(entries), 1)
-        self.assertTrue(self.q.restore(entries[0].id, os.path.join(self.tmpdir, "restored.txt")))
+        self.assertTrue(
+            self.q.restore(entries[0].id, os.path.join(self.tmpdir, "restored.txt"))
+        )
         self.assertTrue(os.path.exists(os.path.join(self.tmpdir, "restored.txt")))
 
     def test_quarantined_file_is_owner_readable(self):
@@ -46,11 +50,15 @@ class TestQuarantine(unittest.TestCase):
         diverse che puntano allo stesso DB (altrimenti i file già
         cifrati non sarebbero più decifrabili dopo un riavvio dell'app).
         """
-        q1 = QuarantineManager(quarantine_dir=self.tmpdir, db_path=os.path.join(self.tmpdir, "enc.db"))
+        q1 = QuarantineManager(
+            quarantine_dir=self.tmpdir, db_path=os.path.join(self.tmpdir, "enc.db")
+        )
         q1.set_encryption(password="hunter2")
         key1 = q1._cipher
 
-        q2 = QuarantineManager(quarantine_dir=self.tmpdir, db_path=os.path.join(self.tmpdir, "enc.db"))
+        q2 = QuarantineManager(
+            quarantine_dir=self.tmpdir, db_path=os.path.join(self.tmpdir, "enc.db")
+        )
         q2.set_encryption(password="hunter2")
         key2 = q2._cipher
 
@@ -67,8 +75,12 @@ class TestQuarantine(unittest.TestCase):
         quarantena distinti devono avere salt distinti.
         """
         other_dir = tempfile.mkdtemp()
-        q1 = QuarantineManager(quarantine_dir=self.tmpdir, db_path=os.path.join(self.tmpdir, "enc.db"))
-        q2 = QuarantineManager(quarantine_dir=other_dir, db_path=os.path.join(other_dir, "enc.db"))
+        q1 = QuarantineManager(
+            quarantine_dir=self.tmpdir, db_path=os.path.join(self.tmpdir, "enc.db")
+        )
+        q2 = QuarantineManager(
+            quarantine_dir=other_dir, db_path=os.path.join(other_dir, "enc.db")
+        )
         self.assertNotEqual(q1._get_or_create_salt(), q2._get_or_create_salt())
 
     def test_symlink_quarantine_prevention(self):
@@ -108,7 +120,9 @@ class TestQuarantine(unittest.TestCase):
         """Ensure that the quarantine database file is initialized with 0o600 permissions."""
         self.assertTrue(os.path.exists(self.q.db_path))
         mode = os.stat(self.q.db_path).st_mode & 0o777
-        self.assertEqual(mode, 0o600, f"Expected database permissions to be 0o600, got {oct(mode)}")
+        self.assertEqual(
+            mode, 0o600, f"Expected database permissions to be 0o600, got {oct(mode)}"
+        )
 
 
 if __name__ == "__main__":
