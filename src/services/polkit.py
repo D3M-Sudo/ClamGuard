@@ -9,7 +9,7 @@ from collections.abc import Callable
 
 from ..core import paths
 
-logger = logging.getLogger("alpha.polkit")
+logger = logging.getLogger("clamguard.polkit")
 
 
 class PolkitHelper:

@@ -38,7 +38,7 @@ class AESGCMCipher:
         return self.aesgcm.decrypt(nonce, ciphertext, None)
 
 
-logger = logging.getLogger("alpha.quarantine")
+logger = logging.getLogger("clamguard.quarantine")
 
 
 class QuarantineEntry:

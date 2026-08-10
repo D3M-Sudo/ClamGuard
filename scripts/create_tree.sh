@@ -1,10 +1,10 @@
 #!/bin/bash
-# Alpha — ClamAV Security Suite — Tree Creator Script
+# ClamGuard — ClamAV Security Suite — Tree Creator Script
 # Run from the project root directory
 
 set -e
 
-echo "Creating Alpha project tree..."
+echo "Creating ClamGuard project tree..."
 
 mkdir -p .github/workflows
 mkdir -p data/icons/hicolor/scalable/apps

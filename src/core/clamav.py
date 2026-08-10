@@ -14,7 +14,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
-logger = logging.getLogger("alpha.clamav")
+logger = logging.getLogger("clamguard.clamav")
 
 
 class ScanResult:

@@ -10,7 +10,7 @@ import gi
 gi.require_version("Secret", "1")
 from gi.repository import Secret
 
-logger = logging.getLogger("alpha.credentials")
+logger = logging.getLogger("clamguard.credentials")
 
 
 class CredentialsService:

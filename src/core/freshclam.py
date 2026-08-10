@@ -7,7 +7,7 @@ import logging
 import os
 import subprocess
 
-logger = logging.getLogger("alpha.freshclam")
+logger = logging.getLogger("clamguard.freshclam")
 
 
 class FreshclamManager:

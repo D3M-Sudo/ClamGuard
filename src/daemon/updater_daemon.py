@@ -8,7 +8,7 @@ import logging
 from ..core.freshclam import FreshclamManager
 from ..core.third_party_db import ThirdPartyDBManager
 
-logger = logging.getLogger("alpha.daemon.updater")
+logger = logging.getLogger("clamguard.daemon.updater")
 
 
 class UpdaterDaemon:

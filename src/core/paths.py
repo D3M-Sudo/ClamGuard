@@ -4,7 +4,7 @@ paths — XDG Base Directory helpers.
 
 I moduli core (quarantine, history, third_party_db) devono persistere dati
 in una posizione scrivibile dal processo utente, sia in esecuzione nativa
-sia dentro il sandbox Flatpak. Path hardcoded come /var/lib/alpha o
+sia dentro il sandbox Flatpak. Path hardcoded come /var/lib/clamguard o
 /var/lib/clamav richiedono permessi di root e, in Flatpak, non sono
 nemmeno montati nel sandbox (o lo sono in sola lettura), quindi rompono
 la persistenza dei dati.
@@ -47,7 +47,7 @@ def get_config_home() -> str:
 
 
 def app_data_dir(*parts: str) -> str:
-    """Percorso dati dell'app: $XDG_DATA_HOME/alpha/<parts...>."""
+    """Percorso dati dell'app: $XDG_DATA_HOME/clamguard/<parts...>."""
     return os.path.join(get_data_home(), APP_DIRNAME, *parts)
 
 

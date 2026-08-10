@@ -21,7 +21,7 @@ from .core.third_party_db import ThirdPartyDBManager
 from .services.clamd_service import ClamdService
 from .services.polkit import PolkitHelper
 
-logger = logging.getLogger("alpha.window")
+logger = logging.getLogger("clamguard.window")
 
 
 class ClamGuardWindow(Adw.ApplicationWindow):

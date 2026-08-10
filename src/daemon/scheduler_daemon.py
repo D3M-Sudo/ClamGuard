@@ -8,7 +8,7 @@ import logging
 from ..core.clamav import ClamAVScanner
 from ..core.history import HistoryManager
 
-logger = logging.getLogger("alpha.daemon.scheduler")
+logger = logging.getLogger("clamguard.daemon.scheduler")
 
 
 class SchedulerDaemon:

@@ -1,2 +1,2 @@
 i18n = import('i18n')
-i18n.gettext('alpha', preset: 'glib')
+i18n.gettext('clamguard', preset: 'glib')

@@ -7,7 +7,7 @@ import logging
 import os
 import subprocess
 
-logger = logging.getLogger("alpha.clamd")
+logger = logging.getLogger("clamguard.clamd")
 
 
 class ClamdService:

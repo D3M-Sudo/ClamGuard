@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from . import paths
 
-logger = logging.getLogger("alpha.history")
+logger = logging.getLogger("clamguard.history")
 
 
 class ScanRecord:

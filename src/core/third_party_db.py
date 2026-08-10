@@ -18,7 +18,7 @@ from urllib.request import Request, urlopen
 
 from . import paths
 
-logger = logging.getLogger("alpha.third_party_db")
+logger = logging.getLogger("clamguard.third_party_db")
 
 
 class SignatureProvider:
