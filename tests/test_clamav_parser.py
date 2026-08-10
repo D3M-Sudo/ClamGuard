@@ -6,7 +6,9 @@ from src.core.clamav import ClamAVScanner
 class TestClamAVParser(unittest.TestCase):
     def test_parse_clamd_response_found(self):
         scanner = ClamAVScanner()
-        r = scanner._parse_clamd_response("/tmp/eicar", "stream: Eicar-Test-Signature FOUND")
+        r = scanner._parse_clamd_response(
+            "/tmp/eicar", "stream: Eicar-Test-Signature FOUND"
+        )
         self.assertTrue(r.infected)
         self.assertEqual(r.virus_name, "Eicar-Test-Signature")
 
@@ -24,9 +26,12 @@ class TestClamAVParser(unittest.TestCase):
         che la chiamata usata realmente dal fallback sia vincolabile.
         """
         import inspect
+
         sig = inspect.signature(ClamAVScanner._scan_clamscan)
         # Chiamata esatta usata dal fallback in _scan_clamd (self, paths, progress_callback)
-        sig.bind(None, ["/tmp/x"], None)  # solleva TypeError se chunk_size non ha default
+        sig.bind(
+            None, ["/tmp/x"], None
+        )  # solleva TypeError se chunk_size non ha default
 
 
 if __name__ == "__main__":
