@@ -157,11 +157,17 @@ class HistoryManager:
         def _sanitize_csv_value(val):
             # Previene CSV Formula Injection (CWE-1236) anteponendo un apice singolo
             # a qualsiasi stringa che inizia con caratteri di formula potenzialmente dannosi.
-            if isinstance(val, str) and val and val[0] in ("=", "+", "-", "@", "\t", "\r"):
+            if (
+                isinstance(val, str)
+                and val
+                and val[0] in ("=", "+", "-", "@", "\t", "\r")
+            ):
                 return "'" + val
             return val
 
-        with sqlite3.connect(self.db_path) as conn, open(path, "w", newline="", encoding="utf-8") as f:
+        with sqlite3.connect(self.db_path) as conn, open(
+            path, "w", newline="", encoding="utf-8"
+        ) as f:
             writer = csv.writer(f)
             writer.writerow(
                 ["ID", "Type", "Target", "Start", "End", "Files", "Threats"]

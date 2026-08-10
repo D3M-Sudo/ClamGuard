@@ -43,10 +43,13 @@ class TestHistory(unittest.TestCase):
         self.assertTrue(os.path.exists(csv_path))
 
         import csv
+
         with open(csv_path, "r", newline="", encoding="utf-8") as f:
             reader = csv.reader(f)
             header = next(reader)
-            self.assertEqual(header, ["ID", "Type", "Target", "Start", "End", "Files", "Threats"])
+            self.assertEqual(
+                header, ["ID", "Type", "Target", "Start", "End", "Files", "Threats"]
+            )
 
             rows = list(reader)
             # Ordered DESC by start_time, so the last inserted is the first row
@@ -56,7 +59,10 @@ class TestHistory(unittest.TestCase):
                 if target_val.endswith("normal_target"):
                     self.assertEqual(target_val, "normal_target")
                 else:
-                    self.assertTrue(target_val.startswith("'"), f"Failed to sanitize target: {target_val}")
+                    self.assertTrue(
+                        target_val.startswith("'"),
+                        f"Failed to sanitize target: {target_val}",
+                    )
 
 
 if __name__ == "__main__":
