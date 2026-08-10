@@ -635,16 +635,28 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._view_stack.set_visible_child_name("virustotal")
 
     def _on_update_db(self, btn):
+        btn.set_sensitive(False)
         self._show_toast("Updating virus definitions...")
-        # Trigger via polkit if needed
-        self._polkit.run_elevated("/usr/bin/freshclam", [], self._on_update_done)
+        thread = threading.Thread(
+            target=self._run_update_db_thread, args=(btn,), daemon=True
+        )
+        thread.start()
 
-    def _on_update_done(self, success, output):
+    def _run_update_db_thread(self, btn):
+        def _callback(success, output):
+            GLib.idle_add(self._on_update_done, success, output, btn)
+
+        # Trigger via polkit in background thread
+        self._polkit.run_elevated("/usr/bin/freshclam", [], _callback)
+
+    def _on_update_done(self, success, output, btn):
+        btn.set_sensitive(True)
         if success:
             self._show_toast("Virus definitions updated successfully")
             self._update_status()
         else:
             self._show_toast("Update failed. Check logs.", Adw.ToastPriority.HIGH)
+        return False  # non ripetere (GLib.idle_add one-shot)
 
     def _on_settings_click(self, btn):
         self._view_stack.set_visible_child_name("settings")

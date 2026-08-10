@@ -101,6 +101,11 @@ class ThirdPartyDBManager:
         os.makedirs(self.sig_dir, exist_ok=True)
         self.providers: List[SignatureProvider] = []
         self._init_db()
+        try:
+            if os.path.exists(self.db_path):
+                os.chmod(self.db_path, 0o600)
+        except Exception:
+            pass
         self._load_providers()
 
     def _init_db(self):

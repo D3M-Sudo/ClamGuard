@@ -123,11 +123,14 @@ class ClamAVScanner:
         self, paths: List[str], progress_callback: Optional[Callable] = None
     ) -> List[ScanResult]:
         """Stream scan via clamd UNIX socket using asyncio."""
+        import socket
         results = []
         total = len(paths)
 
         try:
-            reader, writer = await asyncio.open_unix_connection(self.socket_path)
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_unix_connection(self.socket_path), timeout=10
+            )
             for idx, path in enumerate(paths):
                 cmd = f"SCAN {path}\n".encode()
                 writer.write(cmd)
@@ -136,6 +139,14 @@ class ClamAVScanner:
                 response = await asyncio.wait_for(reader.readline(), timeout=300)
                 decoded = response.decode().strip()
                 result = self._parse_clamd_response(path, decoded)
+
+                if result.error:
+                    err_lower = result.error.lower()
+                    if "denied" in err_lower or "permission" in err_lower or "access" in err_lower:
+                        # Fallback to INSTREAM if permission denied
+                        logger.warning(f"Permission denied for clamd on {path}. Falling back to INSTREAM.")
+                        result = await self._scan_file_instream(path)
+
                 results.append(result)
 
                 if progress_callback:
@@ -143,12 +154,72 @@ class ClamAVScanner:
 
             writer.close()
             await writer.wait_closed()
+        except (asyncio.TimeoutError, socket.timeout, TimeoutError) as e:
+            logger.error(f"clamd scan timeout: {e}")
+            return await self._scan_clamscan(paths, progress_callback)
+        except (BrokenPipeError, ConnectionResetError) as e:
+            logger.error(f"clamd scan connection broken: {e}")
+            return await self._scan_clamscan(paths, progress_callback)
         except Exception as e:
             logger.error(f"clamd scan error: {e}")
             # Fallback to clamscan
             return await self._scan_clamscan(paths, progress_callback)
 
         return results
+
+    async def _scan_file_instream(self, path: str) -> ScanResult:
+        """Stream a file to clamd using the INSTREAM command."""
+        import struct
+        import socket
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_unix_connection(self.socket_path), timeout=10
+            )
+        except Exception as e:
+            logger.error(f"Failed to open connection for INSTREAM: {e}")
+            return ScanResult(path, False, error=str(e))
+
+        try:
+            writer.write(b"nINSTREAM\n")
+            await writer.drain()
+
+            with open(path, "rb") as f:
+                while True:
+                    # Read in chunks of 64KB
+                    chunk = f.read(65536)
+                    if not chunk:
+                        break
+                    chunk_len = len(chunk)
+                    writer.write(struct.pack(">I", chunk_len) + chunk)
+                    await writer.drain()
+
+            # End stream with a zero-length chunk
+            writer.write(struct.pack(">I", 0))
+            await writer.drain()
+
+            response = await asyncio.wait_for(reader.readline(), timeout=300)
+            decoded = response.decode().strip()
+            # Parse the INSTREAM response (e.g., "stream: OK" or "stream: <virus> FOUND")
+            # For the parse function, the format usually is "stream: <status>", so we map it back
+            # replacing "stream:" with the path for correct path matching.
+            if decoded.startswith("stream:"):
+                decoded = decoded.replace("stream:", f"{path}:", 1)
+            return self._parse_clamd_response(path, decoded)
+        except (asyncio.TimeoutError, socket.timeout, TimeoutError) as e:
+            logger.error(f"Timeout during INSTREAM of {path}: {e}")
+            return ScanResult(path, False, error="Timeout")
+        except (BrokenPipeError, ConnectionResetError) as e:
+            logger.error(f"Broken connection during INSTREAM of {path}: {e}")
+            return ScanResult(path, False, error="Connection lost")
+        except Exception as e:
+            logger.error(f"INSTREAM error for {path}: {e}")
+            return ScanResult(path, False, error=str(e))
+        finally:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
 
     def _parse_clamd_response(self, path: str, response: str) -> ScanResult:
         """Parse clamd STREAM/SCAN output."""
@@ -178,7 +249,7 @@ class ClamAVScanner:
                 if os.path.isdir(extra_dir):
                     db_args += ["--database", extra_dir]
             cmd = (
-                ["clamscan", "--infected", "--no-summary", "--stdout"] + db_args + chunk
+                ["clamscan", "--infected", "--no-summary", "--stdout"] + db_args + ["--"] + chunk
             )
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
