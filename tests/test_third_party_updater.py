@@ -17,7 +17,9 @@ class TestThirdPartyUpdater(unittest.TestCase):
     def test_db_permissions(self):
         """Verify that the third party database file has secure 0o600 permissions."""
         db_path = os.path.join(self.tmpdir, "test_perm.db")
-        mgr = ThirdPartyDBManager(sig_dir=self.tmpdir, state_dir=self.tmpdir, db_path=db_path)
+        mgr = ThirdPartyDBManager(
+            sig_dir=self.tmpdir, state_dir=self.tmpdir, db_path=db_path
+        )
         self.assertIsNotNone(mgr)
         self.assertTrue(os.path.exists(db_path))
         mode = os.stat(db_path).st_mode & 0o777

@@ -40,6 +40,7 @@ class VirusTotalClient:
         if not self.api_key:
             try:
                 from ..services.credentials import CredentialsService
+
                 self.api_key = CredentialsService().get_vt_key()
             except Exception:
                 pass
