@@ -144,8 +144,13 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._quick_scan_btn = Gtk.Button(label="Quick Scan")
         self._quick_scan_btn.add_css_class("suggested-action")
         self._quick_scan_btn.connect("clicked", self._on_quick_scan)
-        self._quick_scan_btn.set_tooltip_text("Scan your home directory for immediate threats")
-        self._quick_scan_btn.set_property("accessible-name", "Quick Scan — Scan your home directory for immediate threats")
+        self._quick_scan_btn.set_tooltip_text(
+            "Scan your home directory for immediate threats"
+        )
+        self._quick_scan_btn.set_property(
+            "accessible-name",
+            "Quick Scan — Scan your home directory for immediate threats",
+        )
         header.pack_start(self._quick_scan_btn)
 
         return header
@@ -701,7 +706,9 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         """Enable or disable scan buttons to prevent concurrent scans and provide visual feedback."""
         if hasattr(self, "_quick_scan_btn") and self._quick_scan_btn:
             self._quick_scan_btn.set_sensitive(sensitive)
-            self._quick_scan_btn.set_label("Scanning..." if not sensitive else "Quick Scan")
+            self._quick_scan_btn.set_label(
+                "Scanning..." if not sensitive else "Quick Scan"
+            )
 
         if hasattr(self, "_action_buttons"):
             for title in ["System Scan", "Custom Scan"]:
