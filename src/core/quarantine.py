@@ -41,6 +41,18 @@ class AESGCMCipher:
 logger = logging.getLogger("clamguard.quarantine")
 
 
+def _compute_file_hash(file_path: str | Path) -> str:
+    """Compute SHA-256 hash of a file in chunks to avoid high memory usage."""
+    sha256 = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        while True:
+            chunk = f.read(65536)
+            if not chunk:
+                break
+            sha256.update(chunk)
+    return sha256.hexdigest()
+
+
 class QuarantineEntry:
     def __init__(
         self,
@@ -156,20 +168,31 @@ class QuarantineManager:
                 )
                 return False
 
-            file_hash = hashlib.sha256(src.read_bytes()).hexdigest()
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             q_filename = f"{timestamp}_{src.name}"
             q_path = os.path.join(self.quarantine_dir, q_filename)
 
-            data = src.read_bytes()
             if self._cipher:
-                data = self._cipher.encrypt(data)
+                # Encrypted path: read once, hash in-memory, encrypt, and write.
+                data = src.read_bytes()
+                file_hash = hashlib.sha256(data).hexdigest()
+                enc_data = self._cipher.encrypt(data)
+                with open(q_path, "wb") as f:
+                    f.write(enc_data)
                 encrypted = True
             else:
+                # Unencrypted path: single pass chunked copy and hash computation.
+                sha256 = hashlib.sha256()
+                with open(src, "rb") as sf, open(q_path, "wb") as qf:
+                    while True:
+                        chunk = sf.read(65536)
+                        if not chunk:
+                            break
+                        sha256.update(chunk)
+                        qf.write(chunk)
+                file_hash = sha256.hexdigest()
                 encrypted = False
 
-            with open(q_path, "wb") as f:
-                f.write(data)
             # Sola lettura per il proprietario: isola il file (non scrivibile,
             # non eseguibile) senza impedirne la lettura in fase di restore.
             # La directory di quarantena è già 0o700, quindi resta comunque
@@ -227,22 +250,37 @@ class QuarantineManager:
                     )
                     return False
 
-                with open(q_path, "rb") as f:
-                    data = f.read()
+                if encrypted:
+                    with open(q_path, "rb") as f:
+                        data = f.read()
 
-                if encrypted and self._cipher:
-                    data = self._cipher.decrypt(data)
+                    if self._cipher:
+                        data = self._cipher.decrypt(data)
 
-                actual_hash = hashlib.sha256(data).hexdigest()
-                if actual_hash != stored_hash:
-                    logger.error(f"Integrity check failed for entry {entry_id}")
-                    return False
+                    actual_hash = hashlib.sha256(data).hexdigest()
+                    if actual_hash != stored_hash:
+                        logger.error(f"Integrity check failed for entry {entry_id}")
+                        return False
 
-                os.makedirs(os.path.dirname(dest), exist_ok=True)
-                with open(dest, "wb") as f:
-                    f.write(data)
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    with open(dest, "wb") as f:
+                        f.write(data)
+                else:
+                    # Unencrypted path: verify hash with chunked hashing before copying
+                    actual_hash = _compute_file_hash(q_path)
+                    if actual_hash != stored_hash:
+                        logger.error(f"Integrity check failed for entry {entry_id}")
+                        return False
+
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    with open(q_path, "rb") as sf, open(dest, "wb") as df:
+                        while True:
+                            chunk = sf.read(65536)
+                            if not chunk:
+                                break
+                            df.write(chunk)
+
                 os.chmod(dest, 0o644)
-
                 os.unlink(q_path)
                 conn.execute("UPDATE quarantine SET restored=1 WHERE id=?", (entry_id,))
 

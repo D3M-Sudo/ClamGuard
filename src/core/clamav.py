@@ -17,6 +17,18 @@ from pathlib import Path
 logger = logging.getLogger("clamguard.clamav")
 
 
+def _compute_file_hash(file_path: str | Path) -> str:
+    """Compute SHA-256 hash of a file in chunks to avoid high memory usage."""
+    sha256 = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        while True:
+            chunk = f.read(65536)
+            if not chunk:
+                break
+            sha256.update(chunk)
+    return sha256.hexdigest()
+
+
 class ScanResult:
     """Represents a single file scan result."""
 
@@ -44,7 +56,7 @@ class ScanResult:
         if self._hash is None:
             p = Path(self.path)
             if p.exists():
-                self._hash = hashlib.sha256(p.read_bytes()).hexdigest()
+                self._hash = _compute_file_hash(p)
         return self._hash
 
     @property
@@ -189,18 +201,14 @@ class ClamAVScanner:
             writer.write(b"nINSTREAM\n")
             await writer.drain()
 
-            def _read_chunks():
-                with open(path, "rb") as f:
-                    while True:
-                        chunk = f.read(65536)
-                        if not chunk:
-                            break
-                        yield chunk
-
-            for chunk in await asyncio.to_thread(list, _read_chunks()):
-                chunk_len = len(chunk)
-                writer.write(struct.pack(">I", chunk_len) + chunk)
-                await writer.drain()
+            with open(path, "rb") as f:
+                while True:
+                    chunk = await asyncio.to_thread(f.read, 65536)
+                    if not chunk:
+                        break
+                    chunk_len = len(chunk)
+                    writer.write(struct.pack(">I", chunk_len) + chunk)
+                    await writer.drain()
 
             # End stream with a zero-length chunk
             writer.write(struct.pack(">I", 0))

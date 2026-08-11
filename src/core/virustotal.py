@@ -15,6 +15,19 @@ from . import paths
 
 logger = logging.getLogger("clamguard.virustotal")
 
+
+def _compute_file_hash(file_path: str | Path) -> str:
+    """Compute SHA-256 hash of a file in chunks to avoid high memory usage."""
+    sha256 = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        while True:
+            chunk = f.read(65536)
+            if not chunk:
+                break
+            sha256.update(chunk)
+    return sha256.hexdigest()
+
+
 # Optional dependency — gracefully degrade if not installed
 try:
     import requests
@@ -82,7 +95,7 @@ class VirusTotalClient:
         if not self._session:
             return None
 
-        file_hash = hashlib.sha256(Path(file_path).read_bytes()).hexdigest()
+        file_hash = _compute_file_hash(file_path)
 
         # Check cache
         if not force_refresh:
