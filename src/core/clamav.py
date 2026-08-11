@@ -119,19 +119,54 @@ class ClamAVScanner:
             return await self._scan_clamd(paths, progress_callback)
         return await self._scan_clamscan(paths, progress_callback, chunk_size)
 
+    @staticmethod
+    def _expand_to_files(paths: list[str]) -> list[str]:
+        """Espande una lista di file/cartelle nell'elenco reale dei file.
+
+        Il protocollo clamd (comando SCAN) risponde con un numero di righe
+        non prevedibile a priori quando il target è una directory (una
+        riga per ogni file scansionato al suo interno). Per garantire che
+        "un comando inviato" corrisponda sempre a "una riga di risposta
+        letta" — ed evitare quindi un disallineamento del protocollo tra
+        una directory e la successiva — camminiamo l'albero noi stessi e
+        inviamo un comando SCAN per singolo file reale.
+        """
+        files = []
+        for p in paths:
+            if os.path.isdir(p):
+                for root, _dirs, filenames in os.walk(p, followlinks=False):
+                    for name in filenames:
+                        files.append(os.path.join(root, name))
+            elif os.path.isfile(p):
+                files.append(p)
+            # Path inesistenti o non file/dir vengono ignorati silenziosamente
+            # qui; non è compito dello scanner validare l'input dell'utente.
+        return files
+
     async def _scan_clamd(
         self, paths: list[str], progress_callback: Callable | None = None
     ) -> list[ScanResult]:
-        """Stream scan via clamd UNIX socket using asyncio."""
+        """Stream scan via clamd UNIX socket using asyncio.
 
+        Ogni path in ingresso (file o cartella) viene prima espanso
+        nell'elenco reale dei file da scansionare (vedi _expand_to_files):
+        così ogni comando SCAN inviato riguarda sempre un singolo file, la
+        risposta è sempre esattamente una riga, e i risultati riportati
+        (conteggio file, minacce trovate) corrispondono a ciò che è stato
+        davvero scansionato — non al numero di cartelle scelte dall'utente.
+        """
+        files = await asyncio.to_thread(self._expand_to_files, paths)
         results = []
-        total = len(paths)
+        total = len(files)
+
+        if total == 0:
+            return results
 
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_unix_connection(self.socket_path), timeout=10
             )
-            for idx, path in enumerate(paths):
+            for idx, path in enumerate(files):
                 cmd = f"SCAN {path}\n".encode()
                 writer.write(cmd)
                 await writer.drain()
@@ -247,7 +282,32 @@ class ClamAVScanner:
         progress_callback: Callable | None,
         chunk_size: int = 100,
     ) -> list[ScanResult]:
-        """Fallback async clamscan with chunked execution."""
+        """Fallback async clamscan with chunked execution.
+
+        clamscan scansiona già ricorsivamente ogni cartella passata e
+        stampa (con --no-summary --stdout) una riga per ciascun file
+        realmente scansionato al suo interno: _parse_clamscan_output
+        produce quindi già un ScanResult per file reale, non per path
+        di input. In precedenza questi risultati venivano scartati e
+        rimpiazzati con un unico ScanResult fittizio per ogni cartella
+        di input (facendo apparire "1 file scansionato" indipendentemente
+        dal contenuto reale, e perdendo silenziosamente eventuali minacce
+        trovate nei file interni). Ora i risultati parsati vengono usati
+        direttamente.
+
+        NOTA: il flag --infected è stato rimosso deliberatamente. Con
+        --infected, clamscan stampa una riga SOLO per i file infetti o in
+        errore: i file puliti non producono alcuna riga di output e quindi
+        non vengono mai conteggiati. Senza --infected, clamscan stampa una
+        riga "<path>: OK" anche per ogni file pulito, permettendo un
+        conteggio "Files scanned" corretto.
+
+        NOTA 2: aggiunto --recursive. Senza questo flag clamscan NON
+        scende nelle sottocartelle (comportamento di default di clamscan
+        stesso, non di questo codice) — scansionava quindi solo i file
+        presenti direttamente nella cartella scelta dall'utente, ignorando
+        silenziosamente tutto ciò che si trova più in profondità.
+        """
         results = []
         total = len(paths)
 
@@ -255,10 +315,17 @@ class ClamAVScanner:
             chunk = paths[idx : idx + chunk_size]
             db_args = []
             for extra_dir in self.extra_db_dirs:
-                if os.path.isdir(extra_dir):
+                # clamscan fallisce l'INTERO comando (nessun file scansionato,
+                # nessun risultato per nessuno dei path richiesti) se una
+                # cartella passata a --database esiste ma non contiene
+                # alcuna firma valida — condizione garantita su qualunque
+                # installazione pulita, prima che l'utente scarichi le
+                # prime firme di terze parti dalla vista Database. Va quindi
+                # passata solo se contiene realmente almeno un file.
+                if os.path.isdir(extra_dir) and any(os.scandir(extra_dir)):
                     db_args += ["--database", extra_dir]
             cmd = (
-                ["clamscan", "--infected", "--no-summary", "--stdout"]
+                ["clamscan", "--recursive", "--no-summary", "--stdout"]
                 + db_args
                 + ["--"]
                 + chunk
@@ -271,16 +338,12 @@ class ClamAVScanner:
             stdout, _stderr = await proc.communicate()
 
             chunk_results = self._parse_clamscan_output(stdout.decode())
-            # Map results back to paths
-            for path in chunk:
-                matched = next((r for r in chunk_results if r.path == path), None)
-                if matched:
-                    results.append(matched)
-                else:
-                    results.append(ScanResult(path, False))
+            results.extend(chunk_results)
 
             if progress_callback:
-                progress_callback(chunk[-1], min(idx + chunk_size, total), total)
+                progress_callback(
+                    chunk[-1], min(idx + chunk_size, total), total
+                )
 
         return results
 
