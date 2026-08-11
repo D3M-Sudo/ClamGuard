@@ -870,9 +870,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
 
         threats_lbl = self._stat_labels.get("Threats blocked")
         if threats_lbl:
-            threats_lbl.set_text(
-                f"Threats blocked: {stats['total_threats_found']}"
-            )
+            threats_lbl.set_text(f"Threats blocked: {stats['total_threats_found']}")
 
         files_lbl = self._stat_labels.get("Files scanned")
         if files_lbl:
