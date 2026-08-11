@@ -220,8 +220,12 @@ def main(argv=None) -> int:
     try:
         for source, destination in pairs:
             # Enforce that source is a direct file within staging_root (no nested directories or path traversal allowed)
-            if source.parent.resolve(strict=False) != staging_root.resolve(strict=False):
-                raise ValueError(f"Sorgente fuori dal percorso di staging ammesso: {source}")
+            if source.parent.resolve(strict=False) != staging_root.resolve(
+                strict=False
+            ):
+                raise ValueError(
+                    f"Sorgente fuori dal percorso di staging ammesso: {source}"
+                )
             validate_destination(destination)
     except ValueError as error:
         print(f"Errore: {error}", file=sys.stderr)
