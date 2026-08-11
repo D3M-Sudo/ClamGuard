@@ -341,9 +341,7 @@ class ClamAVScanner:
             results.extend(chunk_results)
 
             if progress_callback:
-                progress_callback(
-                    chunk[-1], min(idx + chunk_size, total), total
-                )
+                progress_callback(chunk[-1], min(idx + chunk_size, total), total)
 
         return results
 
