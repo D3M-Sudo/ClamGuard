@@ -454,12 +454,25 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             self._quarantine_list.append(row)
 
     def _on_restore_clicked(self, button, entry_id):
+        button.set_sensitive(False)
+        self._show_toast("Restoring file in background...")
+        thread = threading.Thread(
+            target=self._run_restore_thread, args=(button, entry_id), daemon=True
+        )
+        thread.start()
+
+    def _run_restore_thread(self, button, entry_id):
         success = self._quarantine.restore(entry_id)
+        GLib.idle_add(self._on_restore_done, button, success)
+
+    def _on_restore_done(self, button, success):
+        button.set_sensitive(True)
         self._show_toast(
             "File restored" if success else "Restore failed — check logs",
             Adw.ToastPriority.NORMAL if success else Adw.ToastPriority.HIGH,
         )
         self._refresh_quarantine_view()
+        return False
 
     def _on_delete_clicked(self, button, entry_id):
         dialog = Adw.MessageDialog(
@@ -795,13 +808,24 @@ class ClamGuardWindow(Adw.ApplicationWindow):
 
     def _on_quarantine_prompt_response(self, dialog, response, infected):
         if response == "quarantine":
-            count = sum(
-                1
-                for r in infected
-                if self._quarantine.quarantine(r.path, virus_name=r.virus_name)
+            self._show_toast("Moving files to quarantine in background...")
+            thread = threading.Thread(
+                target=self._run_quarantine_thread, args=(infected,), daemon=True
             )
-            self._show_toast(f"{count} file(s) quarantined")
-            self._refresh_quarantine_view()
+            thread.start()
+
+    def _run_quarantine_thread(self, infected):
+        count = sum(
+            1
+            for r in infected
+            if self._quarantine.quarantine(r.path, virus_name=r.virus_name)
+        )
+        GLib.idle_add(self._on_quarantine_done, count)
+
+    def _on_quarantine_done(self, count):
+        self._show_toast(f"{count} file(s) quarantined")
+        self._refresh_quarantine_view()
+        return False
 
     def show_quarantine(self):
         self._refresh_quarantine_view()
@@ -834,9 +858,20 @@ class ClamGuardWindow(Adw.ApplicationWindow):
 
     def _update_status(self):
         """Update protection status badge and dashboard."""
+        thread = threading.Thread(target=self._run_update_status_thread, daemon=True)
+        thread.start()
+        return True  # Continue timeout
+
+    def _run_update_status_thread(self):
         try:
             clamd_ok = self._clamd.is_running()
             db_age = self._clamav.get_database_age()
+            GLib.idle_add(self._on_update_status_complete, clamd_ok, db_age)
+        except (OSError, ValueError) as e:
+            logger.error(f"Background status update error: {e}")
+
+    def _on_update_status_complete(self, clamd_ok, db_age):
+        try:
             protected = clamd_ok and db_age < 86400 * 3  # 3 days
 
             if protected:
@@ -884,9 +919,8 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             self._update_label.set_text(update_text)
 
         except (OSError, ValueError) as e:
-            logger.error(f"Status update error: {e}")
-
-        return True  # Continue timeout
+            logger.error(f"Status update complete error: {e}")
+        return False
 
     def _refresh_dashboard_stats(self):
         """Aggiorna le tre righe statistiche della dashboard (Threats
