@@ -84,7 +84,12 @@ def _parse_path_pairs(args):
         raise ValueError("Argomenti non validi: attese coppie sorgente/destinazione.")
     pairs = []
     for idx in range(0, len(args), 2):
-        pairs.append((Path(args[idx]), Path(args[idx + 1])))
+        src, dst = args[idx], args[idx + 1]
+        if "\0" in src or "\0" in dst:
+            raise ValueError("I percorsi non possono contenere byte nulli.")
+        if "\\" in src or "\\" in dst:
+            raise ValueError("I percorsi non possono contenere backslash.")
+        pairs.append((Path(src), Path(dst)))
     return pairs
 
 
@@ -211,9 +216,12 @@ def main(argv=None) -> int:
         print(f"Errore: staging root non valido: {error}", file=sys.stderr)
         return EXIT_GENERIC_ERROR
 
-    # Preflight 1: valida ogni destinazione PRIMA di aprire qualunque sorgente.
+    # Preflight 1: valida ogni sorgente e destinazione PRIMA di aprire qualunque file.
     try:
-        for _source, destination in pairs:
+        for source, destination in pairs:
+            # Enforce that source is a direct file within staging_root (no nested directories or path traversal allowed)
+            if source.parent.resolve(strict=False) != staging_root.resolve(strict=False):
+                raise ValueError(f"Sorgente fuori dal percorso di staging ammesso: {source}")
             validate_destination(destination)
     except ValueError as error:
         print(f"Errore: {error}", file=sys.stderr)

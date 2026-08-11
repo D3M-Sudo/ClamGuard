@@ -54,3 +54,17 @@ def app_data_dir(*parts: str) -> str:
 def is_flatpak_sandbox() -> bool:
     """True se il processo corrente gira dentro un sandbox Flatpak."""
     return os.path.exists("/.flatpak-info") or bool(os.environ.get("FLATPAK_ID"))
+
+
+def compute_file_hash(filepath: str | os.PathLike) -> str:
+    """Calcola lo sha256 di un file a blocchi di 64KB per evitare memory spikes."""
+    import hashlib
+
+    sha256 = hashlib.sha256()
+    with open(str(filepath), "rb") as f:
+        while True:
+            chunk = f.read(65536)
+            if not chunk:
+                break
+            sha256.update(chunk)
+    return sha256.hexdigest()

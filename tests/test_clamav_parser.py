@@ -229,9 +229,7 @@ class TestScanClamdInstreamStreaming(unittest.TestCase):
 
         try:
             reader = AsyncMock()
-            reader.readline.side_effect = [
-                b"stream: OK\n"
-            ]
+            reader.readline.side_effect = [b"stream: OK\n"]
             writer = MagicMock()
             writer.write = MagicMock()
             writer.drain = AsyncMock()
@@ -256,11 +254,16 @@ class TestScanClamdInstreamStreaming(unittest.TestCase):
             # 2. Primo chunk (>I length + data)
             # 3. Secondo chunk (>I length + data)
             # 4. Zero-length chunk termination (00 00 00 00)
-            written_bytes = b"".join(call.args[0] for call in writer.write.call_args_list)
+            written_bytes = b"".join(
+                call.args[0] for call in writer.write.call_args_list
+            )
             self.assertTrue(written_bytes.startswith(b"nINSTREAM\n"))
             self.assertTrue(written_bytes.endswith(b"\x00\x00\x00\x00"))
             # Total size should be header + 2 chunk lengths (4 bytes each) + 100000 bytes + 4 bytes EOF
-            self.assertEqual(len(written_bytes), len(b"nINSTREAM\n") + 4 + 65536 + 4 + (100000 - 65536) + 4)
+            self.assertEqual(
+                len(written_bytes),
+                len(b"nINSTREAM\n") + 4 + 65536 + 4 + (100000 - 65536) + 4,
+            )
         finally:
             os.unlink(temp_path)
 

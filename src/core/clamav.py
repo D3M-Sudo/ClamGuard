@@ -5,7 +5,6 @@ High-performance parsing, I/O mitigation for large scans
 """
 
 import asyncio
-import hashlib
 import logging
 import os
 import re
@@ -13,6 +12,8 @@ import subprocess
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
+
+from .paths import compute_file_hash
 
 logger = logging.getLogger("clamguard.clamav")
 
@@ -44,7 +45,7 @@ class ScanResult:
         if self._hash is None:
             p = Path(self.path)
             if p.exists():
-                self._hash = hashlib.sha256(p.read_bytes()).hexdigest()
+                self._hash = compute_file_hash(self.path)
         return self._hash
 
     @property

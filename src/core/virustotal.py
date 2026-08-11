@@ -3,13 +3,11 @@
 VirusTotalClient — API v3 integration with local cache and rate limiting
 """
 
-import hashlib
 import logging
 import os
 import sqlite3
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 
 from . import paths
 
@@ -82,7 +80,7 @@ class VirusTotalClient:
         if not self._session:
             return None
 
-        file_hash = hashlib.sha256(Path(file_path).read_bytes()).hexdigest()
+        file_hash = paths.compute_file_hash(file_path)
 
         # Check cache
         if not force_refresh:

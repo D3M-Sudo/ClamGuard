@@ -231,13 +231,13 @@ class ClamGuardApplication(Adw.Application):
             paths = options["scan"]
             self.activate()
             if self._window:
-                GLib.idle_add(self._window.start_scan, paths)
+                GLib.idle_add(lambda: (self._window.start_scan(paths), False)[1])
             return 0
 
         if "quarantine" in options:
             self.activate()
             if self._window:
-                GLib.idle_add(self._window.show_quarantine)
+                GLib.idle_add(lambda: (self._window.show_quarantine(), False)[1])
             return 0
 
         self.activate()
@@ -249,7 +249,7 @@ class ClamGuardApplication(Adw.Application):
         if paths:
             self.activate()
             if self._window:
-                GLib.idle_add(self._window.start_scan, paths)
+                GLib.idle_add(lambda: (self._window.start_scan(paths), False)[1])
 
     def _on_quit_action(self, action, param):
         self.quit()
