@@ -215,6 +215,56 @@ class TestScanClamscanIsRecursive(unittest.TestCase):
         self.assertIn("--recursive", captured_cmd["cmd"])
 
 
+class TestScanClamdInstreamStreaming(unittest.TestCase):
+    """Verifichiamo che _scan_file_instream funzioni correttamente con il
+    nuovo meccanismo di streaming asincrono chunk-by-chunk e che trasmetta i chunk."""
+
+    def test_instream_streams_chunks_correctly(self):
+        scanner = ClamAVScanner()
+
+        # Prepariamo un file di test con contenuto noto
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(b"A" * 100000)  # > 65536 byte, quindi si divide in 2 chunk
+            temp_path = f.name
+
+        try:
+            reader = AsyncMock()
+            reader.readline.side_effect = [
+                b"stream: OK\n"
+            ]
+            writer = MagicMock()
+            writer.write = MagicMock()
+            writer.drain = AsyncMock()
+            writer.close = MagicMock()
+            writer.wait_closed = AsyncMock()
+
+            async def fake_open_unix_connection(_path):
+                return reader, writer
+
+            with patch(
+                "asyncio.open_unix_connection",
+                side_effect=fake_open_unix_connection,
+            ):
+                result = asyncio.run(scanner._scan_file_instream(temp_path))
+
+            self.assertFalse(result.infected)
+            self.assertIsNone(result.error)
+
+            # Verifichiamo che i chunk siano stati scritti
+            # Dovremmo avere:
+            # 1. nINSTREAM\n
+            # 2. Primo chunk (>I length + data)
+            # 3. Secondo chunk (>I length + data)
+            # 4. Zero-length chunk termination (00 00 00 00)
+            written_bytes = b"".join(call.args[0] for call in writer.write.call_args_list)
+            self.assertTrue(written_bytes.startswith(b"nINSTREAM\n"))
+            self.assertTrue(written_bytes.endswith(b"\x00\x00\x00\x00"))
+            # Total size should be header + 2 chunk lengths (4 bytes each) + 100000 bytes + 4 bytes EOF
+            self.assertEqual(len(written_bytes), len(b"nINSTREAM\n") + 4 + 65536 + 4 + (100000 - 65536) + 4)
+        finally:
+            os.unlink(temp_path)
+
+
 class TestScanClamdOneCommandPerFile(unittest.TestCase):
     """Regressione: _scan_clamd inviava un comando SCAN per ogni path di
     input (spesso una cartella) leggendo una sola riga di risposta, mentre

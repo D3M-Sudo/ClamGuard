@@ -224,18 +224,19 @@ class ClamAVScanner:
             writer.write(b"nINSTREAM\n")
             await writer.drain()
 
-            def _read_chunks():
-                with open(path, "rb") as f:
-                    while True:
-                        chunk = f.read(65536)
-                        if not chunk:
-                            break
-                        yield chunk
-
-            for chunk in await asyncio.to_thread(list, _read_chunks()):
-                chunk_len = len(chunk)
-                writer.write(struct.pack(">I", chunk_len) + chunk)
-                await writer.drain()
+            # Real async chunk-by-chunk streaming to minimize memory usage and avoid blocking
+            # the event loop with synchronous file reads. Only 1 chunk in memory at any time.
+            f = await asyncio.to_thread(open, path, "rb")
+            try:
+                while True:
+                    chunk = await asyncio.to_thread(f.read, 65536)
+                    if not chunk:
+                        break
+                    chunk_len = len(chunk)
+                    writer.write(struct.pack(">I", chunk_len) + chunk)
+                    await writer.drain()
+            finally:
+                await asyncio.to_thread(f.close)
 
             # End stream with a zero-length chunk
             writer.write(struct.pack(">I", 0))
