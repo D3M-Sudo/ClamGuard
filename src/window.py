@@ -7,6 +7,7 @@ GTK4 / Libadwaita native implementation
 import asyncio
 import logging
 import threading
+from datetime import datetime, timezone
 
 import gi
 
@@ -218,6 +219,13 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             ("Files scanned", "0", "folder-open"),
             ("Last scan", "Never", "appointment-soon"),
         ]
+        # Riferimenti salvati per etichetta (non solo per l'intero box):
+        # _refresh_dashboard_stats() li aggiorna dopo ogni scansione e
+        # all'avvio. Prima di questo fix, self._stats_rows era solo il
+        # contenitore, mai riletto da nessuna parte: le tre righe restavano
+        # bloccate ai valori hardcoded impostati qui, anche dopo scansioni
+        # completate con file/minacce reali.
+        self._stat_labels = {}
         for label, value, icon in stats:
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
             row.set_halign(Gtk.Align.END)
@@ -228,6 +236,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             lbl.add_css_class("dashboard-card-desc")
             row.append(lbl)
             right.append(row)
+            self._stat_labels[label] = lbl
 
         self._stats_rows = right
         box.append(right)
@@ -726,6 +735,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             scan_id, len(results), len(infected), [r.to_dict() for r in results]
         )
         self._refresh_history_view()
+        self._refresh_dashboard_stats()
 
         if infected:
             self._show_toast(
@@ -786,6 +796,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
 
     def _start_status_monitor(self):
         self._update_status()
+        self._refresh_dashboard_stats()
         GLib.timeout_add_seconds(30, self._update_status)
 
     def _update_status(self):
@@ -821,7 +832,17 @@ class ClamGuardWindow(Adw.ApplicationWindow):
                 )
 
             # Update last update label
-            if db_age < 3600:
+            if db_age == float("inf"):
+                # Nessun database ClamAV trovato sul sistema (caso comune
+                # su un'installazione pulita, prima del primo "Update DB").
+                # db_age è +inf in questo caso: float('inf') // 86400 in
+                # Python produce nan (non inf), e int(nan) solleva
+                # ValueError -- prima di questo fix l'intera funzione
+                # falliva silenziosamente ad ogni ciclo (loggato come
+                # errore, mai mostrato all'utente), lasciando l'etichetta
+                # bloccata sul testo iniziale hardcoded "Updated: Today".
+                update_text = "Updated: Never"
+            elif db_age < 3600:
                 update_text = "Updated: Just now"
             elif db_age < 86400:
                 update_text = f"Updated: {int(db_age // 3600)}h ago"
@@ -833,6 +854,46 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             logger.error(f"Status update error: {e}")
 
         return True  # Continue timeout
+
+    def _refresh_dashboard_stats(self):
+        """Aggiorna le tre righe statistiche della dashboard (Threats
+        blocked / Files scanned / Last scan) con i totali reali dalla
+        cronologia scansioni. Prima di questo fix questi tre Label
+        venivano impostati una sola volta alla creazione della UI e mai
+        più riletti: restavano bloccati a "0 / 0 / Never" anche dopo
+        scansioni completate con file e minacce reali."""
+        try:
+            stats = self._history.get_summary_stats()
+        except (OSError, ValueError) as e:
+            logger.error(f"Dashboard stats refresh error: {e}")
+            return
+
+        threats_lbl = self._stat_labels.get("Threats blocked")
+        if threats_lbl:
+            threats_lbl.set_text(f"Threats blocked: {stats['total_threats_found']}")
+
+        files_lbl = self._stat_labels.get("Files scanned")
+        if files_lbl:
+            files_lbl.set_text(f"Files scanned: {stats['total_files_scanned']}")
+
+        last_scan_lbl = self._stat_labels.get("Last scan")
+        if last_scan_lbl:
+            last_scan_lbl.set_text(
+                f"Last scan: {self._format_relative_time(stats['last_scan'])}"
+            )
+
+    @staticmethod
+    def _format_relative_time(dt) -> str:
+        """Formatta un datetime come 'Just now' / 'Xh ago' / 'Xd ago' /
+        'Never', stesso criterio già usato per l'età del database."""
+        if dt is None:
+            return "Never"
+        age = datetime.now(timezone.utc).timestamp() - dt.timestamp()
+        if age < 3600:
+            return "Just now"
+        if age < 86400:
+            return f"{int(age // 3600)}h ago"
+        return f"{int(age // 86400)}d ago"
 
     def _set_status(self, level, badge_text, icon_name, title, desc):
         """Update status widgets with given level."""
