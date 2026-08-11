@@ -10,6 +10,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -36,6 +37,73 @@ class AESGCMCipher:
         nonce = data[:12]
         ciphertext = data[12:]
         return self.aesgcm.decrypt(nonce, ciphertext, None)
+
+    def encrypt_file(self, src_path: Path, dst_path: Path) -> None:
+        import struct
+
+        with open(src_path, "rb") as f_in, open(dst_path, "wb") as f_out:
+            while True:
+                chunk = f_in.read(65536)
+                if not chunk:
+                    break
+                nonce = os.urandom(12)
+                ciphertext = self.aesgcm.encrypt(nonce, chunk, None)
+                f_out.write(struct.pack(">I", len(ciphertext)))
+                f_out.write(nonce)
+                f_out.write(ciphertext)
+
+    def decrypt_file(self, src_path: Path, dst_path: Path) -> None:
+        import struct
+
+        try:
+            file_size = os.path.getsize(src_path)
+            with open(src_path, "rb") as f_in:
+                len_bytes = f_in.read(4)
+                if not len_bytes:
+                    return
+                if len(len_bytes) < 4:
+                    raise ValueError("Truncated encrypted file header")
+                chunk_len = struct.unpack(">I", len_bytes)[0]
+                if chunk_len > file_size or chunk_len == 0:
+                    raise ValueError("Does not look like a chunked file")
+
+                nonce = f_in.read(12)
+                if len(nonce) < 12:
+                    raise ValueError("Truncated encrypted file nonce")
+                ciphertext = f_in.read(chunk_len)
+                if len(ciphertext) < chunk_len:
+                    raise ValueError("Truncated encrypted file ciphertext")
+
+                plaintext = self.aesgcm.decrypt(nonce, ciphertext, None)
+
+                with open(dst_path, "wb") as f_out:
+                    f_out.write(plaintext)
+                    while True:
+                        l_bytes = f_in.read(4)
+                        if not l_bytes:
+                            break
+                        if len(l_bytes) < 4:
+                            raise ValueError("Truncated chunk length")
+                        c_len = struct.unpack(">I", l_bytes)[0]
+                        non = f_in.read(12)
+                        if len(non) < 12:
+                            raise ValueError("Truncated chunk nonce")
+                        c_text = f_in.read(c_len)
+                        if len(c_text) < c_len:
+                            raise ValueError("Truncated chunk ciphertext")
+                        p_text = self.aesgcm.decrypt(non, c_text, None)
+                        f_out.write(p_text)
+        except Exception as e:
+            logger.info(f"Falling back to legacy GCM decryption: {e}")
+            with open(src_path, "rb") as f_in:
+                data = f_in.read()
+            if len(data) < 12:
+                raise ValueError("Ciphertext too short")
+            nonce = data[:12]
+            ciphertext = data[12:]
+            plaintext = self.aesgcm.decrypt(nonce, ciphertext, None)
+            with open(dst_path, "wb") as f_out:
+                f_out.write(plaintext)
 
 
 logger = logging.getLogger("clamguard.quarantine")
@@ -156,20 +224,23 @@ class QuarantineManager:
                 )
                 return False
 
-            file_hash = hashlib.sha256(src.read_bytes()).hexdigest()
+            file_hash = paths.compute_file_hash(src)
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             q_filename = f"{timestamp}_{src.name}"
             q_path = os.path.join(self.quarantine_dir, q_filename)
 
-            data = src.read_bytes()
             if self._cipher:
-                data = self._cipher.encrypt(data)
+                self._cipher.encrypt_file(src, Path(q_path))
                 encrypted = True
             else:
+                with open(src, "rb") as f_in, open(q_path, "wb") as f_out:
+                    while True:
+                        chunk = f_in.read(65536)
+                        if not chunk:
+                            break
+                        f_out.write(chunk)
                 encrypted = False
 
-            with open(q_path, "wb") as f:
-                f.write(data)
             # Sola lettura per il proprietario: isola il file (non scrivibile,
             # non eseguibile) senza impedirne la lettura in fase di restore.
             # La directory di quarantena è già 0o700, quindi resta comunque
@@ -201,6 +272,7 @@ class QuarantineManager:
 
     def restore(self, entry_id: int, destination: str | None = None) -> bool:
         """Restore file from quarantine after integrity check."""
+        dest_path = None
         try:
             with sqlite3.connect(self.db_path) as conn:
                 row = conn.execute(
@@ -218,38 +290,54 @@ class QuarantineManager:
                     row[3],
                     row[6],
                 )
-                dest = destination or original_path
-                dest_path = Path(dest)
+                dest_path = Path(destination or original_path)
 
-                if dest_path.is_symlink() or os.path.islink(dest):
+                if dest_path.is_symlink() or os.path.islink(str(dest_path)):
                     logger.error(
-                        f"Restore target is a symbolic link: {dest}. Aborting to prevent symlink traversal."
+                        f"Restore target is a symbolic link: {dest_path}. Aborting to prevent symlink traversal."
                     )
                     return False
 
-                with open(q_path, "rb") as f:
-                    data = f.read()
+                os.makedirs(dest_path.parent, exist_ok=True)
 
-                if encrypted and self._cipher:
-                    data = self._cipher.decrypt(data)
+                if encrypted:
+                    if self._cipher:
+                        self._cipher.decrypt_file(Path(q_path), dest_path)
+                    else:
+                        raise ValueError("No cipher configured for decryption")
+                else:
+                    with open(q_path, "rb") as f_in, open(dest_path, "wb") as f_out:
+                        while True:
+                            chunk = f_in.read(65536)
+                            if not chunk:
+                                break
+                            f_out.write(chunk)
 
-                actual_hash = hashlib.sha256(data).hexdigest()
+                # Set proper permissions
+                os.chmod(str(dest_path), 0o644)
+
+                actual_hash = paths.compute_file_hash(dest_path)
                 if actual_hash != stored_hash:
                     logger.error(f"Integrity check failed for entry {entry_id}")
+                    if dest_path and dest_path.exists():
+                        try:
+                            os.unlink(dest_path)
+                        except OSError:
+                            pass
                     return False
-
-                os.makedirs(os.path.dirname(dest), exist_ok=True)
-                with open(dest, "wb") as f:
-                    f.write(data)
-                os.chmod(dest, 0o644)
 
                 os.unlink(q_path)
                 conn.execute("UPDATE quarantine SET restored=1 WHERE id=?", (entry_id,))
 
-            logger.info(f"Restored entry {entry_id} to {dest}")
+            logger.info(f"Restored entry {entry_id} to {dest_path}")
             return True
-        except (OSError, ValueError, sqlite3.Error) as e:
+        except (OSError, ValueError, sqlite3.Error, InvalidTag) as e:
             logger.error(f"Restore failed: {e}")
+            if dest_path and dest_path.exists():
+                try:
+                    os.unlink(dest_path)
+                except OSError:
+                    pass
             return False
 
     def delete(self, entry_id: int) -> bool:
