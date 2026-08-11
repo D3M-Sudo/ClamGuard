@@ -66,5 +66,42 @@ class TestHistory(unittest.TestCase):
                     )
 
 
+class TestSummaryStats(unittest.TestCase):
+    """Regressione: get_summary_stats() è il metodo che alimenta le tre
+    righe statistiche della dashboard (Threats blocked / Files scanned /
+    Last scan), che prima venivano impostate una sola volta alla
+    creazione della UI e non aggiornate mai più."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, "history_test.db")
+        self.manager = HistoryManager(db_path=self.db_path)
+
+    def test_no_scans_yet(self):
+        stats = self.manager.get_summary_stats()
+        self.assertEqual(stats["total_files_scanned"], 0)
+        self.assertEqual(stats["total_threats_found"], 0)
+        self.assertIsNone(stats["last_scan"])
+
+    def test_aggregates_across_multiple_scans(self):
+        s1 = self.manager.start_scan("manual", "/home")
+        self.manager.finish_scan(s1, files_scanned=10, threats_found=1, results=[])
+        s2 = self.manager.start_scan("manual", "/tmp")
+        self.manager.finish_scan(s2, files_scanned=5, threats_found=0, results=[])
+
+        stats = self.manager.get_summary_stats()
+        self.assertEqual(stats["total_files_scanned"], 15)
+        self.assertEqual(stats["total_threats_found"], 1)
+        self.assertIsNotNone(stats["last_scan"])
+
+    def test_in_progress_scan_not_counted_until_finished(self):
+        # start_scan senza il corrispondente finish_scan: non deve
+        # comparire nei totali né far pensare che ci sia stata una scan.
+        self.manager.start_scan("manual", "/home")
+        stats = self.manager.get_summary_stats()
+        self.assertEqual(stats["total_files_scanned"], 0)
+        self.assertIsNone(stats["last_scan"])
+
+
 if __name__ == "__main__":
     unittest.main()

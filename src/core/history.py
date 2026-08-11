@@ -131,6 +131,31 @@ class HistoryManager:
                 ),
             )
 
+    def get_summary_stats(self) -> dict:
+        """Totali aggregati su tutte le scansioni completate, per la
+        dashboard (minacce bloccate, file scansionati, data ultima
+        scansione). Prima di questo metodo, la dashboard mostrava sempre
+        gli stessi 3 valori hardcoded impostati alla creazione della UI
+        e mai più aggiornati."""
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(files_scanned), 0), "
+                "COALESCE(SUM(threats_found), 0), "
+                "MAX(end_time) "
+                "FROM scans WHERE end_time IS NOT NULL"
+            ).fetchone()
+        total_files, total_threats, last_scan_ts = row
+        last_scan = (
+            datetime.fromtimestamp(last_scan_ts, tz=timezone.utc)
+            if last_scan_ts
+            else None
+        )
+        return {
+            "total_files_scanned": total_files,
+            "total_threats_found": total_threats,
+            "last_scan": last_scan,
+        }
+
     def get_recent_scans(self, limit: int = 50) -> list[ScanRecord]:
         records = []
         with sqlite3.connect(self.db_path) as conn:
