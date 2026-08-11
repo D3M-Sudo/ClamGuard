@@ -151,6 +151,7 @@ class TrayService:
         self._running = True
         self._watcher_registered = False
         self._watcher_retry_source_id = 0
+        self._watcher_retry_interval_ms = 2000
 
         self._current_status = "protected"
         self._window_visible = True
@@ -290,6 +291,7 @@ class TrayService:
         try:
             source.call_finish(result)
             self._watcher_registered = True
+            self._watcher_retry_interval_ms = 2000
             logger.info(f"Registrato con {watcher_name}")
         except (GLib.Error, ValueError):
             self._register_with_watcher(next_index)
@@ -302,9 +304,15 @@ class TrayService:
         ):
             return
         self._watcher_retry_source_id = GLib.timeout_add(
-            self.WATCHER_RETRY_DELAY_MS, self._retry_watcher
+            self._watcher_retry_interval_ms, self._retry_watcher
         )
-        logger.info("Nessun StatusNotifierWatcher trovato; nuovo tentativo tra 2s")
+        logger.info(
+            f"Nessun StatusNotifierWatcher trovato; nuovo tentativo tra {self._watcher_retry_interval_ms // 1000}s"
+        )
+        # Backoff esponenziale fino a 60 secondi (60000ms)
+        self._watcher_retry_interval_ms = min(
+            60000, self._watcher_retry_interval_ms * 2
+        )
 
     def _retry_watcher(self):
         self._watcher_retry_source_id = 0
