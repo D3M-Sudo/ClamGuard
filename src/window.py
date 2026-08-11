@@ -6,6 +6,7 @@ GTK4 / Libadwaita native implementation
 
 import asyncio
 import logging
+import os
 import threading
 from datetime import datetime, timezone
 
@@ -112,6 +113,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         menu_button = Gtk.MenuButton()
         menu_button.set_icon_name("open-menu-symbolic")
         menu_button.set_tooltip_text("Main Menu")
+        menu_button.set_property("accessible-name", "Main Menu")
         menu = Gio.Menu()
         menu.append("Preferences", "app.preferences")
         menu.append("About ClamGuard", "app.about")
@@ -139,10 +141,12 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         header.set_title_widget(self._status_box)
 
         # Quick scan button in header
-        quick_scan_btn = Gtk.Button(label="Quick Scan")
-        quick_scan_btn.add_css_class("suggested-action")
-        quick_scan_btn.connect("clicked", self._on_quick_scan)
-        header.pack_start(quick_scan_btn)
+        self._quick_scan_btn = Gtk.Button(label="Quick Scan")
+        self._quick_scan_btn.add_css_class("suggested-action")
+        self._quick_scan_btn.connect("clicked", self._on_quick_scan)
+        self._quick_scan_btn.set_tooltip_text("Scan your home directory for immediate threats")
+        self._quick_scan_btn.set_property("accessible-name", "Quick Scan — Scan your home directory for immediate threats")
+        header.pack_start(self._quick_scan_btn)
 
         return header
 
@@ -289,8 +293,10 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             ),
         ]
 
+        self._action_buttons = {}
         for i, (title, desc, icon, callback) in enumerate(actions):
             card = self._build_action_card(title, desc, icon, callback)
+            self._action_buttons[title] = card
             grid.attach(card, i % 3, i // 3, 1, 1)
 
         return grid
@@ -301,6 +307,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         card.add_css_class("dashboard-card")
         card.set_hexpand(True)
         card.connect("clicked", callback)
+        card.set_property("accessible-name", f"{title} — {description}")
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         box.set_margin_start(12)
@@ -423,14 +430,18 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             row.add_css_class("threat-row")
             row.set_icon_name("dialog-warning")
 
+            filename = os.path.basename(entry.original_path)
+
             restore_btn = Gtk.Button(icon_name="edit-undo-symbolic")
-            restore_btn.set_tooltip_text("Restore")
+            restore_btn.set_tooltip_text(f"Restore {filename}")
+            restore_btn.set_property("accessible-name", f"Restore {filename}")
             restore_btn.set_valign(Gtk.Align.CENTER)
             restore_btn.connect("clicked", self._on_restore_clicked, entry.id)
             row.add_suffix(restore_btn)
 
             delete_btn = Gtk.Button(icon_name="user-trash-symbolic")
-            delete_btn.set_tooltip_text("Delete permanently")
+            delete_btn.set_tooltip_text(f"Delete {filename} permanently")
+            delete_btn.set_property("accessible-name", f"Delete {filename} permanently")
             delete_btn.set_valign(Gtk.Align.CENTER)
             delete_btn.connect("clicked", self._on_delete_clicked, entry.id)
             row.add_suffix(delete_btn)
@@ -686,6 +697,18 @@ class ClamGuardWindow(Adw.ApplicationWindow):
 
     # --- Public API ---
 
+    def _set_scan_buttons_sensitive(self, sensitive):
+        """Enable or disable scan buttons to prevent concurrent scans and provide visual feedback."""
+        if hasattr(self, "_quick_scan_btn") and self._quick_scan_btn:
+            self._quick_scan_btn.set_sensitive(sensitive)
+            self._quick_scan_btn.set_label("Scanning..." if not sensitive else "Quick Scan")
+
+        if hasattr(self, "_action_buttons"):
+            for title in ["System Scan", "Custom Scan"]:
+                btn = self._action_buttons.get(title)
+                if btn:
+                    btn.set_sensitive(sensitive)
+
     def start_scan(self, paths):
         """Initiate a scan on the given paths (esegue realmente ClamAVScanner)."""
         if not paths:
@@ -695,6 +718,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             return
 
         self._scan_in_progress = True
+        self._set_scan_buttons_sensitive(False)
         self._show_toast(f"Scanning {len(paths)} location(s)...")
         scan_id = self._history.start_scan("manual", ", ".join(paths))
 
@@ -720,11 +744,13 @@ class ClamGuardWindow(Adw.ApplicationWindow):
 
     def _on_scan_error(self, message):
         self._scan_in_progress = False
+        self._set_scan_buttons_sensitive(True)
         self._show_toast(f"Scan failed: {message}", Adw.ToastPriority.HIGH)
         return False  # non ripetere (GLib.idle_add one-shot)
 
     def _on_scan_complete(self, results, scan_id):
         self._scan_in_progress = False
+        self._set_scan_buttons_sensitive(True)
         infected = [r for r in results if r.infected]
 
         for r in infected:
