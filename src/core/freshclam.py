@@ -7,6 +7,8 @@ import logging
 import os
 import subprocess
 
+from . import paths
+
 logger = logging.getLogger("clamguard.freshclam")
 
 
@@ -25,7 +27,12 @@ class FreshclamManager:
 
     def update(self, foreground: bool = False) -> tuple[bool, str]:
         """Run freshclam update. Returns (success, output)."""
-        cmd = [self._binary]
+        # In Flatpak freshclam non è installato nel sandbox: va eseguito
+        # sull'host via flatpak-spawn --host.
+        if paths.is_flatpak_sandbox():
+            cmd = ["flatpak-spawn", "--host", self._binary]
+        else:
+            cmd = [self._binary]
         if self.config_path and os.path.exists(self.config_path):
             cmd += ["--config-file", self.config_path]
         if foreground:

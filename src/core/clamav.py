@@ -13,6 +13,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import paths
 from .paths import compute_file_hash
 
 logger = logging.getLogger("clamguard.clamav")
@@ -95,6 +96,11 @@ class ClamAVScanner:
         return self.CLAMD_SOCKET
 
     def _detect_clamd(self) -> bool:
+        # In Flatpak il socket di sistema non è visibile nel sandbox (e
+        # anche se lo fosse, non sarebbe affidabile). Forziamo sempre il
+        # fallback clamscan via flatpak-spawn --host.
+        if paths.is_flatpak_sandbox():
+            return False
         if not (
             os.path.exists(self.socket_path)
             and os.access(self.socket_path, os.R_OK | os.W_OK)
@@ -111,14 +117,14 @@ class ClamAVScanner:
 
     async def scan_paths(
         self,
-        paths: list[str],
+        scan_paths: list[str],
         progress_callback: Callable[[str, int, int], None] | None = None,
         chunk_size: int = 100,
     ) -> list[ScanResult]:
         """Scan multiple paths with async I/O and progress reporting."""
         if self._use_clamd:
-            return await self._scan_clamd(paths, progress_callback)
-        return await self._scan_clamscan(paths, progress_callback, chunk_size)
+            return await self._scan_clamd(scan_paths, progress_callback)
+        return await self._scan_clamscan(scan_paths, progress_callback, chunk_size)
 
     @staticmethod
     def _expand_to_files(paths: list[str]) -> list[str]:
@@ -145,7 +151,7 @@ class ClamAVScanner:
         return files
 
     async def _scan_clamd(
-        self, paths: list[str], progress_callback: Callable | None = None
+        self, scan_paths: list[str], progress_callback: Callable | None = None
     ) -> list[ScanResult]:
         """Stream scan via clamd UNIX socket using asyncio.
 
@@ -198,14 +204,14 @@ class ClamAVScanner:
             await writer.wait_closed()
         except (asyncio.TimeoutError, TimeoutError) as e:
             logger.error(f"clamd scan timeout: {e}")
-            return await self._scan_clamscan(paths, progress_callback)
+            return await self._scan_clamscan(scan_paths, progress_callback)
         except (BrokenPipeError, ConnectionResetError) as e:
             logger.error(f"clamd scan connection broken: {e}")
-            return await self._scan_clamscan(paths, progress_callback)
+            return await self._scan_clamscan(scan_paths, progress_callback)
         except (OSError, ValueError) as e:
             logger.error(f"clamd scan error: {e}")
             # Fallback to clamscan
-            return await self._scan_clamscan(paths, progress_callback)
+            return await self._scan_clamscan(scan_paths, progress_callback)
 
         return results
 
@@ -278,9 +284,20 @@ class ClamAVScanner:
         else:
             return ScanResult(path, False, error=response)
 
+    def _build_clamscan_cmd(self, args: list[str]) -> list[str]:
+        """Costruisce il comando clamscan, gestendo il sandbox Flatpak.
+
+        In Flatpak, clamscan non esiste dentro il sandbox: va eseguito
+        sull'host via flatpak-spawn --host. I path vanno convertiti dal
+        namespace sandbox a quello host (vedi paths.to_host_path).
+        """
+        if paths.is_flatpak_sandbox():
+            return ["flatpak-spawn", "--host", "clamscan"] + args
+        return ["clamscan"] + args
+
     async def _scan_clamscan(
         self,
-        paths: list[str],
+        scan_paths: list[str],
         progress_callback: Callable | None,
         chunk_size: int = 100,
     ) -> list[ScanResult]:
@@ -311,10 +328,10 @@ class ClamAVScanner:
         silenziosamente tutto ciò che si trova più in profondità.
         """
         results = []
-        total = len(paths)
+        total = len(scan_paths)
 
         for idx in range(0, total, chunk_size):
-            chunk = paths[idx : idx + chunk_size]
+            chunk = scan_paths[idx : idx + chunk_size]
             db_args = []
             for extra_dir in self.extra_db_dirs:
                 # clamscan fallisce l'INTERO comando (nessun file scansionato,
@@ -324,22 +341,47 @@ class ClamAVScanner:
                 # installazione pulita, prima che l'utente scarichi le
                 # prime firme di terze parti dalla vista Database. Va quindi
                 # passata solo se contiene realmente almeno un file.
+                # In Flatpak la directory firme è persistita nel sandbox e
+                # va convertita al path host prima di passarla a clamscan
+                # eseguito sull'host.
+                host_extra = paths.to_host_path(extra_dir)
                 if os.path.isdir(extra_dir) and any(os.scandir(extra_dir)):
-                    db_args += ["--database", extra_dir]
+                    db_args += ["--database", host_extra]
+            # In Flatpak i path vanno convertiti al namespace host prima
+            # di passarli a clamscan eseguito sull'host.
+            host_chunk = [paths.to_host_path(p) for p in chunk]
             cmd = (
-                ["clamscan", "--recursive", "--no-summary", "--stdout"]
-                + db_args
+                self._build_clamscan_cmd(
+                    ["--recursive", "--no-summary", "--stdout"] + db_args
+                )
                 + ["--"]
-                + chunk
+                + host_chunk
             )
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, _stderr = await proc.communicate()
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _stderr = await proc.communicate()
+            except FileNotFoundError as e:
+                # clamscan non è installato (né nel sandbox né sull'host)
+                msg = (
+                    "ClamAV non è installato. Installa clamav sul sistema "
+                    "per abilitare le scansioni."
+                )
+                logger.error(f"clamscan not found: {e}")
+                return [
+                    ScanResult(p, False, error=msg) for p in chunk
+                ]
 
             chunk_results = self._parse_clamscan_output(stdout.decode())
+            # In Flatpak clamscan gira sull'host: i path nei risultati sono
+            # in namespace host. Riconvertiamoli in namespace sandbox per
+            # coerenza interna (quarantena, storico). In esecuzione nativa
+            # to_sandbox_path è l'identità.
+            for r in chunk_results:
+                r.path = paths.to_sandbox_path(r.path)
             results.extend(chunk_results)
 
             if progress_callback:
@@ -373,7 +415,23 @@ class ClamAVScanner:
             "/usr/share/clamav/main.cvd",
         ]
         for path in db_paths:
-            if os.path.exists(path):
+            if paths.is_flatpak_sandbox():
+                # In Flatpak /var/lib/clamav non è montato nel sandbox:
+                # chiediamo l'età del file all'host via flatpak-spawn.
+                try:
+                    result = subprocess.run(
+                        ["flatpak-spawn", "--host", "stat", "-c", "%Y", path],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                        check=False,
+                    )
+                    if result.returncode == 0:
+                        mtime = float(result.stdout.strip())
+                        return datetime.now(timezone.utc).timestamp() - mtime
+                except (OSError, ValueError, subprocess.TimeoutExpired) as e:
+                    logger.debug(f"Could not stat {path} on host: {e}")
+            elif os.path.exists(path):
                 mtime = os.path.getmtime(path)
                 return datetime.now(timezone.utc).timestamp() - mtime
         return float("inf")
@@ -381,13 +439,22 @@ class ClamAVScanner:
     def get_database_version(self) -> str | None:
         """Return ClamAV database version string."""
         try:
-            result = subprocess.run(
-                ["clamscan", "--version"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
+            if paths.is_flatpak_sandbox():
+                result = subprocess.run(
+                    ["flatpak-spawn", "--host", "clamscan", "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+            else:
+                result = subprocess.run(
+                    ["clamscan", "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
             return result.stdout.strip()
         except (OSError, subprocess.TimeoutExpired):
             return None

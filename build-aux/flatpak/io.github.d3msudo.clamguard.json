@@ -26,6 +26,7 @@
         "--filesystem=xdg-data/clamav:ro",
         "--filesystem=/var/lib/clamav:ro",
         "--filesystem=/run/clamav:ro",
+        "--filesystem=home/.cache/clamguard:rw",
         "--persist=.config/clamguard",
         "--persist=.local/share/clamguard",
         "--env=PYTHONPATH=/app/lib/python3.13/site-packages",

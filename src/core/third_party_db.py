@@ -17,6 +17,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from . import paths
+from .paths import is_flatpak_sandbox
 
 logger = logging.getLogger("clamguard.third_party_db")
 
@@ -265,9 +266,20 @@ class ThirdPartyDBManager:
         """Test signature file with clamscan before activation."""
         import subprocess
 
+        # In Flatpak clamscan non è installato nel sandbox: va eseguito
+        # sull'host via flatpak-spawn --host. Il file temporaneo vive in
+        # una directory persistita del sandbox, quindi va convertito al
+        # path host prima di passarlo a clamscan.
+        if is_flatpak_sandbox():
+            cmd = ["flatpak-spawn", "--host", "clamscan"]
+            host_path = paths.to_host_path(path)
+        else:
+            cmd = ["clamscan"]
+            host_path = path
+
         try:
             result = subprocess.run(
-                ["clamscan", "--database", path, "--infected", "/dev/null"],
+                cmd + ["--database", host_path, "--infected", "/dev/null"],
                 capture_output=True,
                 text=True,
                 timeout=30,
