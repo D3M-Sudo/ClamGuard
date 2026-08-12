@@ -70,29 +70,34 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._scanner_view = self._build_scanner_view()
         self._quarantine_view = self._build_quarantine_view()
         self._history_view = self._build_history_view()
-        self._virustotal_view = self._build_placeholder_view("VirusTotal", "globe")
+        self._virustotal_view = self._build_placeholder_view(
+            "VirusTotal", "system-search-symbolic"
+        )
         self._database_view = self._build_database_view()
         self._settings_view = self._build_placeholder_view(
-            "Settings", "preferences-system"
+            "Settings", "preferences-system-symbolic"
         )
 
         self._view_stack.add_titled_with_icon(
-            self._scanner_view, "scanner", "Dashboard", "security-high"
+            self._scanner_view, "scanner", "Dashboard", "security-high-symbolic"
         )
         self._view_stack.add_titled_with_icon(
-            self._quarantine_view, "quarantine", "Quarantine", "folder-quarantine"
+            self._quarantine_view,
+            "quarantine",
+            "Quarantine",
+            "changes-prevent-symbolic",
         )
         self._view_stack.add_titled_with_icon(
-            self._history_view, "history", "History", "document-open-recent"
+            self._history_view, "history", "History", "document-open-recent-symbolic"
         )
         self._view_stack.add_titled_with_icon(
-            self._virustotal_view, "virustotal", "VirusTotal", "globe"
+            self._virustotal_view, "virustotal", "VirusTotal", "system-search-symbolic"
         )
         self._view_stack.add_titled_with_icon(
             self._database_view, "database", "Database", "database"
         )
         self._view_stack.add_titled_with_icon(
-            self._settings_view, "settings", "Settings", "preferences-system"
+            self._settings_view, "settings", "Settings", "preferences-system-symbolic"
         )
 
         # View switcher bar (bottom) + title (header)
@@ -113,7 +118,11 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         menu_button = Gtk.MenuButton()
         menu_button.set_icon_name("open-menu-symbolic")
         menu_button.set_tooltip_text("Main Menu")
-        menu_button.set_property("accessible-name", "Main Menu")
+        # "accessible-name" non e' una GObject property valida in GTK4
+        # (solo "accessible-role" lo e'): impostarla con set_property()
+        # solleva TypeError e blocca l'avvio dell'intera applicazione.
+        # L'API corretta e' Gtk.Accessible.update_property().
+        menu_button.update_property([Gtk.AccessibleProperty.LABEL], ["Main Menu"])
         menu = Gio.Menu()
         menu.append("Preferences", "app.preferences")
         menu.append("About ClamGuard", "app.about")
@@ -125,7 +134,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self._status_box.set_valign(Gtk.Align.CENTER)
 
-        self._status_icon = Gtk.Image.new_from_icon_name("security-high")
+        self._status_icon = Gtk.Image.new_from_icon_name("security-high-symbolic")
         self._status_icon.add_css_class("dashboard-icon")
         self._status_box.append(self._status_icon)
 
@@ -147,9 +156,9 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._quick_scan_btn.set_tooltip_text(
             "Scan your home directory for immediate threats"
         )
-        self._quick_scan_btn.set_property(
-            "accessible-name",
-            "Quick Scan — Scan your home directory for immediate threats",
+        self._quick_scan_btn.update_property(
+            [Gtk.AccessibleProperty.LABEL],
+            ["Quick Scan — Scan your home directory for immediate threats"],
         )
         header.pack_start(self._quick_scan_btn)
 
@@ -200,7 +209,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         left.set_halign(Gtk.Align.START)
         left.set_hexpand(True)
 
-        self._big_status_icon = Gtk.Image.new_from_icon_name("security-high")
+        self._big_status_icon = Gtk.Image.new_from_icon_name("security-high-symbolic")
         self._big_status_icon.set_pixel_size(64)
         left.append(self._big_status_icon)
 
@@ -226,7 +235,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         stats = [
             ("Threats blocked", "0", "dialog-error"),
             ("Files scanned", "0", "folder-open"),
-            ("Last scan", "Never", "appointment-soon"),
+            ("Last scan", "Never", "appointment-soon-symbolic"),
         ]
         # Riferimenti salvati per etichetta (non solo per l'intero box):
         # _refresh_dashboard_stats() li aggiorna dopo ogni scansione e
@@ -275,25 +284,25 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             (
                 "Quarantine",
                 "Manage isolated threats",
-                "folder-quarantine",
+                "changes-prevent-symbolic",
                 self._on_quarantine_click,
             ),
             (
                 "VirusTotal",
                 "Check files with 70+ engines",
-                "globe",
+                "system-search-symbolic",
                 self._on_virustotal_click,
             ),
             (
                 "Update DB",
                 "Update virus definitions",
-                "software-update-available",
+                "view-refresh-symbolic",
                 self._on_update_db,
             ),
             (
                 "Settings",
                 "Configure protection options",
-                "preferences-system",
+                "preferences-system-symbolic",
                 self._on_settings_click,
             ),
         ]
@@ -312,7 +321,9 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         card.add_css_class("dashboard-card")
         card.set_hexpand(True)
         card.connect("clicked", callback)
-        card.set_property("accessible-name", f"{title} — {description}")
+        card.update_property(
+            [Gtk.AccessibleProperty.LABEL], [f"{title} — {description}"]
+        )
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         box.set_margin_start(12)
@@ -439,14 +450,18 @@ class ClamGuardWindow(Adw.ApplicationWindow):
 
             restore_btn = Gtk.Button(icon_name="edit-undo-symbolic")
             restore_btn.set_tooltip_text(f"Restore {filename}")
-            restore_btn.set_property("accessible-name", f"Restore {filename}")
+            restore_btn.update_property(
+                [Gtk.AccessibleProperty.LABEL], [f"Restore {filename}"]
+            )
             restore_btn.set_valign(Gtk.Align.CENTER)
             restore_btn.connect("clicked", self._on_restore_clicked, entry.id)
             row.add_suffix(restore_btn)
 
             delete_btn = Gtk.Button(icon_name="user-trash-symbolic")
             delete_btn.set_tooltip_text(f"Delete {filename} permanently")
-            delete_btn.set_property("accessible-name", f"Delete {filename} permanently")
+            delete_btn.update_property(
+                [Gtk.AccessibleProperty.LABEL], [f"Delete {filename} permanently"]
+            )
             delete_btn.set_valign(Gtk.Align.CENTER)
             delete_btn.connect("clicked", self._on_delete_clicked, entry.id)
             row.add_suffix(delete_btn)
@@ -532,7 +547,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             row = Adw.ActionRow()
             row.set_title("No scans yet")
             row.set_subtitle("Run a scan to see it here.")
-            row.set_icon_name("document-open-recent")
+            row.set_icon_name("document-open-recent-symbolic")
             self._history_list.append(row)
             return
 
@@ -878,7 +893,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
                 self._set_status(
                     "protected",
                     "Protected",
-                    "security-high",
+                    "security-high-symbolic",
                     "Your device is protected",
                     "Real-time scanning is active and virus definitions are up to date.",
                 )
@@ -886,7 +901,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
                 self._set_status(
                     "warning",
                     "Outdated",
-                    "software-update-available",
+                    "view-refresh-symbolic",
                     "Definitions are outdated",
                     "Your virus definitions are older than 3 days. Please update.",
                 )
