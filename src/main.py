@@ -91,8 +91,9 @@ class ClamGuardApplication(Adw.Application):
     def _setup_css(self):
         """Load custom CSS for Bitdefender-style dashboard accents."""
         css = """
+        /* Status Badges */
         .status-badge-protected {
-            background: linear-gradient(135deg, @green_4, @green_5);
+            background: linear-gradient(135deg, #22c55e, #16a34a);
             color: white;
             border-radius: 9999px;
             padding: 8px 20px;
@@ -100,7 +101,7 @@ class ClamGuardApplication(Adw.Application):
             font-size: 0.95rem;
         }
         .status-badge-warning {
-            background: linear-gradient(135deg, @yellow_4, @yellow_5);
+            background: linear-gradient(135deg, #eab308, #ca8a04);
             color: black;
             border-radius: 9999px;
             padding: 8px 20px;
@@ -108,32 +109,217 @@ class ClamGuardApplication(Adw.Application):
             font-size: 0.95rem;
         }
         .status-badge-critical {
-            background: linear-gradient(135deg, @red_4, @red_5);
+            background: linear-gradient(135deg, #ef4444, #dc2626);
             color: white;
             border-radius: 9999px;
             padding: 8px 20px;
             font-weight: 800;
             font-size: 0.95rem;
         }
-        .dashboard-card {
-            background-color: @card_bg_color;
+
+        /* Sleek Dark Sidebar styling */
+        .sidebar-dark {
+            background-color: #11161d;
+            border-right: 1px solid #1c2330;
+            padding: 16px 12px;
+        }
+        .sidebar-shield-container {
+            margin-bottom: 12px;
+        }
+        .sidebar-shield {
+            -gtk-icon-size: 96px;
+            transition: all 0.3s ease;
+        }
+        .sidebar-shield-label {
+            font-weight: 800;
+            font-size: 1.15rem;
+            margin-top: 4px;
+        }
+
+        /* Sidebar State Colors */
+        .shield-protected {
+            color: #22c55e;
+        }
+        .shield-warning {
+            color: #eab308;
+        }
+        .shield-critical {
+            color: #ef4444;
+        }
+
+        /* Sidebar Navigation Row styling */
+        .sidebar-nav {
+            background: transparent;
+        }
+        .sidebar-nav-row {
+            background: transparent;
+            border-radius: 10px;
+            margin: 4px 0;
+            color: #a0aec0;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        .sidebar-nav-row:hover {
+            background-color: rgba(255, 255, 255, 0.06);
+            color: #ffffff;
+        }
+        .sidebar-nav-row:selected {
+            background-color: #0066cc;
+            color: #ffffff;
+        }
+        .sidebar-row-icon {
+            -gtk-icon-size: 18px;
+        }
+        .sidebar-row-label {
+            font-size: 0.95rem;
+        }
+
+        /* Content Area & Headerbar */
+        .content-area-light {
+            background-color: #f5f5f7;
+            color: #1d1d1f;
+        }
+        .content-header {
+            background-color: #f5f5f7;
+            border-bottom: none;
+            box-shadow: none;
+            padding: 12px 24px;
+        }
+
+        /* Typography & Headings */
+        .dashboard-large-title {
+            font-weight: 800;
+            font-size: 2.4rem;
+            color: #1d1d1f;
+            margin-bottom: 2px;
+        }
+        .dashboard-subtitle {
+            font-weight: 500;
+            font-size: 1.05rem;
+            color: #515154;
+        }
+        .view-main-title {
+            font-weight: 800;
+            font-size: 2rem;
+            color: #1d1d1f;
+        }
+        .view-subtitle {
+            font-size: 1rem;
+            color: #515154;
+            margin-bottom: 12px;
+        }
+
+        /* Cards & Containers (White boxes with soft shadows) */
+        .scan-card, .dashboard-card {
+            background-color: #ffffff;
             border-radius: 18px;
-            padding: 18px;
+            padding: 20px;
+            border: 1px solid #e5e5ea;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
             margin: 6px;
         }
+        .scan-card-icon-box {
+            background-color: #f5f5f7;
+            border-radius: 12px;
+            padding: 12px;
+        }
+        .scan-card-icon {
+            -gtk-icon-size: 40px;
+            color: #0066cc;
+        }
+        .scan-card-title {
+            font-weight: 700;
+            font-size: 1.15rem;
+            color: #1d1d1f;
+        }
+        .scan-card-subtitle {
+            font-size: 0.9rem;
+            color: #86868b;
+        }
+
+        /* Recommendation Banner */
+        .recommendation-banner {
+            background-color: #eef2f6;
+            border-radius: 18px;
+            border: 1px solid #d2dce6;
+            margin: 6px;
+        }
+        .recommendation-header {
+            font-size: 0.85rem;
+        }
+        .recommendation-title {
+            font-weight: 800;
+            color: #4a5568;
+            letter-spacing: 0.5px;
+        }
+        .recommendation-pag-label {
+            font-weight: 700;
+            color: #4a5568;
+        }
+        .recommendation-desc {
+            font-size: 0.95rem;
+            color: #2d3748;
+            line-height: 1.4;
+        }
+
+        /* Buttons & Toggles */
+        .blue-button {
+            background-color: #0066cc;
+            color: #ffffff;
+            font-weight: 700;
+            border-radius: 20px;
+            padding: 8px 24px;
+            border: none;
+            transition: all 0.2s ease;
+        }
+        .blue-button:hover {
+            background-color: #0052a3;
+        }
+        .outline-button {
+            background-color: transparent;
+            color: #0066cc;
+            font-weight: 700;
+            border: 1.5px solid #0066cc;
+            border-radius: 20px;
+            padding: 6px 18px;
+            transition: all 0.2s ease;
+        }
+        .outline-button:hover {
+            background-color: rgba(0, 102, 204, 0.08);
+        }
+        .not-now-button {
+            color: #0066cc;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+        .not-now-button:hover {
+            color: #0052a3;
+        }
+
+        .green-dot {
+            color: #22c55e;
+            font-size: 0.8rem;
+        }
+        .browser-label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #515154;
+        }
+
+        /* Extra elements */
         .dashboard-card-title {
             font-weight: 700;
             font-size: 1.1rem;
         }
         .dashboard-card-desc {
             font-size: 0.85rem;
-            opacity: 0.7;
+            color: #86868b;
         }
         .dashboard-icon {
             -gtk-icon-size: 32px;
         }
         .threat-row {
-            background: alpha(@red_3, 0.08);
+            background: rgba(239, 68, 68, 0.08);
             border-radius: 12px;
             margin: 4px 0;
             padding: 10px;
