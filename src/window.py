@@ -70,13 +70,9 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._scanner_view = self._build_scanner_view()
         self._quarantine_view = self._build_quarantine_view()
         self._history_view = self._build_history_view()
-        self._virustotal_view = self._build_placeholder_view(
-            "VirusTotal", "system-search-symbolic"
-        )
+        self._virustotal_view = self._build_virustotal_view()
         self._database_view = self._build_database_view()
-        self._settings_view = self._build_placeholder_view(
-            "Settings", "preferences-system-symbolic"
-        )
+        self._settings_view = self._build_settings_view()
 
         self._view_stack.add_titled_with_icon(
             self._scanner_view, "scanner", "Dashboard", "security-high-symbolic"
@@ -376,27 +372,174 @@ class ClamGuardWindow(Adw.ApplicationWindow):
 
         return box
 
-    def _build_placeholder_view(self, title, icon_name):
-        """Placeholder view for unimplemented pages."""
+    def _build_virustotal_view(self):
+        """View reale VirusTotal: seleziona un file, lo verifica tramite
+        VirusTotalClient (hash lookup con cache locale + upload opzionale
+        per file mai visti), mostra il risultato."""
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.set_valign(Gtk.Align.CENTER)
-        box.set_halign(Gtk.Align.CENTER)
+        box.set_margin_top(24)
+        box.set_margin_bottom(24)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
 
-        icon = Gtk.Image.new_from_icon_name(icon_name)
-        icon.set_pixel_size(64)
-        icon.set_opacity(0.5)
-        box.append(icon)
+        title = Gtk.Label(label="VirusTotal")
+        title.add_css_class("title-2")
+        title.set_xalign(0)
+        box.append(title)
 
-        lbl = Gtk.Label(label=title)
-        lbl.add_css_class("title-2")
-        box.append(lbl)
+        desc = Gtk.Label(
+            label="Check a single file against 70+ antivirus engines via VirusTotal."
+        )
+        desc.set_xalign(0)
+        desc.set_wrap(True)
+        desc.add_css_class("dashboard-card-desc")
+        box.append(desc)
 
-        sub = Gtk.Label(label="View implementation pending")
-        sub.add_css_class("body")
-        sub.set_opacity(0.6)
-        box.append(sub)
+        choose_btn = Gtk.Button(label="Choose File to Check")
+        choose_btn.add_css_class("suggested-action")
+        choose_btn.set_halign(Gtk.Align.START)
+        choose_btn.connect("clicked", self._on_virustotal_choose_file)
+        box.append(choose_btn)
 
+        self._vt_status_group = Adw.PreferencesGroup()
+        self._vt_status_rows = []
+        box.append(self._vt_status_group)
+
+        self._vt_result_group = Adw.PreferencesGroup()
+        self._vt_result_rows = []
+        self._vt_result_group.set_visible(False)
+        box.append(self._vt_result_group)
+
+        self._refresh_virustotal_view()
         return box
+
+    def _refresh_virustotal_view(self):
+        """Mostra lo stato corrente (integrazione disabilitata / chiave
+        API mancante), se pertinente."""
+        # Adw.PreferencesGroup non espone i figli aggiunti tramite add()
+        # via get_first_child() (sono avvolti in contenitori interni):
+        # per svuotare il gruppo servono i riferimenti diretti alle righe
+        # effettivamente passate ad add(), tenuti a parte in una lista.
+        for row in self._vt_status_rows:
+            self._vt_status_group.remove(row)
+        self._vt_status_rows = []
+
+        if not self._settings.get_boolean("virustotal-enabled"):
+            info = Adw.ActionRow()
+            info.set_title("VirusTotal integration is disabled")
+            info.set_subtitle("Enable it from Settings to check files here.")
+            info.set_icon_name("dialog-information-symbolic")
+            self._vt_status_group.add(info)
+            self._vt_status_rows.append(info)
+            return
+
+        from .core.virustotal import VirusTotalClient
+
+        if not VirusTotalClient().api_key:
+            info = Adw.ActionRow()
+            info.set_title("No VirusTotal API key configured")
+            info.set_subtitle("Add your API key from Settings to enable lookups.")
+            info.set_icon_name("dialog-information-symbolic")
+            self._vt_status_group.add(info)
+            self._vt_status_rows.append(info)
+
+    def _on_virustotal_choose_file(self, btn):
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Select a file to check")
+        dialog.open(self, None, self._on_virustotal_file_chosen)
+
+    def _on_virustotal_file_chosen(self, dialog, result):
+        try:
+            f = dialog.open_finish(result)
+            path = f.get_path()
+        except (GLib.Error, ValueError) as e:
+            logger.error(f"VirusTotal file dialog error: {e}")
+            return
+        if not path:
+            return
+
+        if not self._settings.get_boolean("virustotal-enabled"):
+            self._show_toast(
+                "Enable VirusTotal in Settings first", Adw.ToastPriority.HIGH
+            )
+            return
+
+        self._show_toast(f"Checking {os.path.basename(path)} on VirusTotal...")
+        thread = threading.Thread(
+            target=self._run_virustotal_lookup, args=(path,), daemon=True
+        )
+        thread.start()
+
+    def _run_virustotal_lookup(self, path):
+        from .core.virustotal import VirusTotalClient
+
+        client = VirusTotalClient()
+        if not client.api_key:
+            GLib.idle_add(self._on_virustotal_result, path, None, "no_key")
+            return
+        result = client.lookup_file(path)
+        GLib.idle_add(self._on_virustotal_result, path, result, None)
+
+    def _on_virustotal_result(self, path, result, error):
+        filename = os.path.basename(path)
+
+        for row in self._vt_result_rows:
+            self._vt_result_group.remove(row)
+        self._vt_result_rows = []
+
+        if error == "no_key":
+            self._show_toast(
+                "No VirusTotal API key configured — add one in Settings",
+                Adw.ToastPriority.HIGH,
+            )
+            return False
+
+        if result is None:
+            self._show_toast(
+                f"VirusTotal check failed for {filename} — check logs",
+                Adw.ToastPriority.HIGH,
+            )
+            return False
+
+        self._vt_result_group.set_visible(True)
+        self._vt_result_group.set_title(f"Results for {filename}")
+
+        malicious = result.get("malicious", 0)
+        suspicious = result.get("suspicious", 0)
+        harmless = result.get("harmless", 0)
+        total = result.get("total", 0)
+
+        summary = Adw.ActionRow()
+        if malicious or suspicious:
+            summary.set_title(
+                f"{malicious + suspicious} / {total} engines flagged this file"
+            )
+            summary.set_icon_name("dialog-warning")
+        else:
+            summary.set_title(f"0 / {total} engines flagged this file")
+            summary.set_icon_name("emblem-ok-symbolic")
+        summary.set_subtitle(
+            f"{harmless} clean · {malicious} malicious · {suspicious} suspicious"
+        )
+        self._vt_result_group.add(summary)
+        self._vt_result_rows.append(summary)
+
+        type_row = Adw.ActionRow()
+        type_row.set_title("File type")
+        type_row.set_subtitle(result.get("type", "unknown"))
+        self._vt_result_group.add(type_row)
+        self._vt_result_rows.append(type_row)
+
+        names = result.get("names") or []
+        if names:
+            names_row = Adw.ActionRow()
+            names_row.set_title("Known as")
+            names_row.set_subtitle(", ".join(names[:5]))
+            self._vt_result_group.add(names_row)
+            self._vt_result_rows.append(names_row)
+
+        self._show_toast(f"VirusTotal check complete for {filename}")
+        return False
 
     def _build_quarantine_view(self):
         """View reale della quarantena, collegata a QuarantineManager."""
@@ -633,6 +776,145 @@ class ClamGuardWindow(Adw.ApplicationWindow):
                 "emblem-ok-symbolic" if p["enabled"] else "dialog-warning"
             )
             self._database_list.append(row)
+
+    def _build_settings_view(self):
+        """View reale delle impostazioni, collegata allo schema GSettings
+        e al CredentialsService per la chiave API VirusTotal."""
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_vexpand(True)
+
+        page = Adw.PreferencesPage()
+        scroll.set_child(page)
+
+        scanning_group = Adw.PreferencesGroup()
+        scanning_group.set_title("Scanning")
+
+        use_clamd_row = Adw.SwitchRow()
+        use_clamd_row.set_title("Use clamd daemon")
+        use_clamd_row.set_subtitle(
+            "Prefer the clamd background service over clamscan when available"
+        )
+        self._settings.bind(
+            "use-clamd", use_clamd_row, "active", Gio.SettingsBindFlags.DEFAULT
+        )
+        scanning_group.add(use_clamd_row)
+
+        socket_row = Adw.EntryRow()
+        socket_row.set_title("clamd socket path")
+        self._settings.bind(
+            "clamav-socket-path", socket_row, "text", Gio.SettingsBindFlags.DEFAULT
+        )
+        scanning_group.add(socket_row)
+
+        auto_scan_row = Adw.SwitchRow()
+        auto_scan_row.set_title("Auto-scan downloads")
+        auto_scan_row.set_subtitle("Automatically scan files as they are downloaded")
+        self._settings.bind(
+            "auto-scan-downloads",
+            auto_scan_row,
+            "active",
+            Gio.SettingsBindFlags.DEFAULT,
+        )
+        scanning_group.add(auto_scan_row)
+
+        page.add(scanning_group)
+
+        protection_group = Adw.PreferencesGroup()
+        protection_group.set_title("Protection")
+
+        encrypt_row = Adw.SwitchRow()
+        encrypt_row.set_title("Encrypt quarantined files")
+        encrypt_row.set_subtitle("Store isolated threats in an encrypted form")
+        self._settings.bind(
+            "quarantine-encrypt",
+            encrypt_row,
+            "active",
+            Gio.SettingsBindFlags.DEFAULT,
+        )
+        protection_group.add(encrypt_row)
+
+        third_party_row = Adw.SwitchRow()
+        third_party_row.set_title("Third-party signature databases")
+        third_party_row.set_subtitle(
+            "Use community signature feeds (urlhaus, sanesecurity, …) in local scans"
+        )
+        self._settings.bind(
+            "third-party-enabled",
+            third_party_row,
+            "active",
+            Gio.SettingsBindFlags.DEFAULT,
+        )
+        protection_group.add(third_party_row)
+
+        tray_row = Adw.SwitchRow()
+        tray_row.set_title("Show system tray icon")
+        self._settings.bind(
+            "show-tray-icon", tray_row, "active", Gio.SettingsBindFlags.DEFAULT
+        )
+        protection_group.add(tray_row)
+
+        page.add(protection_group)
+
+        vt_group = Adw.PreferencesGroup()
+        vt_group.set_title("VirusTotal")
+        vt_group.set_description("Check individual files against 70+ antivirus engines")
+
+        vt_enabled_row = Adw.SwitchRow()
+        vt_enabled_row.set_title("Enable VirusTotal integration")
+        self._settings.bind(
+            "virustotal-enabled",
+            vt_enabled_row,
+            "active",
+            Gio.SettingsBindFlags.DEFAULT,
+        )
+        vt_enabled_row.connect(
+            "notify::active", lambda *_: self._refresh_virustotal_view()
+        )
+        vt_group.add(vt_enabled_row)
+
+        self._vt_key_row = Adw.PasswordEntryRow()
+        self._vt_key_row.set_title("API key")
+        self._vt_key_row.set_tooltip_text("Leave blank to keep the currently saved key")
+        vt_group.add(self._vt_key_row)
+
+        save_key_btn = Gtk.Button(label="Save API key")
+        save_key_btn.add_css_class("suggested-action")
+        save_key_btn.set_margin_top(6)
+        save_key_btn.set_halign(Gtk.Align.START)
+        save_key_btn.connect("clicked", self._on_save_vt_key)
+        vt_group.add(save_key_btn)
+
+        page.add(vt_group)
+
+        return scroll
+
+    def _on_save_vt_key(self, btn):
+        key = self._vt_key_row.get_text().strip()
+        if not key:
+            self._show_toast("Enter an API key first", Adw.ToastPriority.HIGH)
+            return
+
+        btn.set_sensitive(False)
+        thread = threading.Thread(
+            target=self._run_save_vt_key, args=(key, btn), daemon=True
+        )
+        thread.start()
+
+    def _run_save_vt_key(self, key, btn):
+        from .services.credentials import CredentialsService
+
+        success = CredentialsService().store_vt_key(key)
+        GLib.idle_add(self._on_save_vt_key_done, success, btn)
+
+    def _on_save_vt_key_done(self, success, btn):
+        btn.set_sensitive(True)
+        self._vt_key_row.set_text("")
+        self._show_toast(
+            "VirusTotal API key saved" if success else "Failed to save API key",
+            Adw.ToastPriority.NORMAL if success else Adw.ToastPriority.HIGH,
+        )
+        self._refresh_virustotal_view()
+        return False
 
     def _on_install_signatures_clicked(self, button):
         button.set_sensitive(False)
