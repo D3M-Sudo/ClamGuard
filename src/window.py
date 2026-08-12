@@ -1378,7 +1378,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
     def _set_scan_buttons_sensitive(self, sensitive):
         """Enable or disable scan buttons to prevent concurrent scans and provide visual feedback."""
         if hasattr(self, "_dashboard_scan_buttons"):
-            for title, btn in self._dashboard_scan_buttons.items():
+            for btn in self._dashboard_scan_buttons.values():
                 btn.set_sensitive(sensitive)
                 if not sensitive:
                     btn.set_label("Scanning...")

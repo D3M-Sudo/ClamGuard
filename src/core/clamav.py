@@ -371,9 +371,7 @@ class ClamAVScanner:
                     "per abilitare le scansioni."
                 )
                 logger.error(f"clamscan not found: {e}")
-                return [
-                    ScanResult(p, False, error=msg) for p in chunk
-                ]
+                return [ScanResult(p, False, error=msg) for p in chunk]
 
             chunk_results = self._parse_clamscan_output(stdout.decode())
             # In Flatpak clamscan gira sull'host: i path nei risultati sono

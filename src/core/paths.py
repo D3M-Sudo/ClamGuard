@@ -147,16 +147,14 @@ def to_host_path(path: str) -> str:
 
     # Path dentro la home del sandbox.
     if path.startswith(sandbox_home):
-        rel = path[len(sandbox_home):].lstrip("/")
+        rel = path[len(sandbox_home) :].lstrip("/")
         for persist_dir in PERSIST_DIRS:
             if rel == persist_dir or rel.startswith(persist_dir + "/"):
                 # Directory persistita: sull'host vive in
                 # $HOME_HOST/.var/app/<app-id>/<rel-path>
-                return os.path.join(
-                    host_home, ".var", "app", APP_ID, rel
-                )
+                return os.path.join(host_home, ".var", "app", APP_ID, rel)
         # File utente condiviso: stesso path relativo nella home host.
-        return host_home + path[len(sandbox_home):]
+        return host_home + path[len(sandbox_home) :]
 
     # Fallback: se il path contiene il marker .var/app/<app-id>, rimuovilo.
     marker = f"/.var/app/{APP_ID}"
@@ -188,13 +186,13 @@ def to_sandbox_path(path: str) -> str:
     # $HOME_SANDBOX/<rel-path>.
     persist_prefix = os.path.join(host_home, ".var", "app", APP_ID)
     if path.startswith(persist_prefix):
-        rel = path[len(persist_prefix):].lstrip("/")
+        rel = path[len(persist_prefix) :].lstrip("/")
         for persist_dir in PERSIST_DIRS:
             if rel == persist_dir or rel.startswith(persist_dir + "/"):
                 return os.path.join(sandbox_home, rel)
 
     # File utente condivisi: host $HOME_HOST/<rel> → sandbox $HOME_SANDBOX/<rel>.
     if path.startswith(host_home):
-        return sandbox_home + path[len(host_home):]
+        return sandbox_home + path[len(host_home) :]
 
     return path

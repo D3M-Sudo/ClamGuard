@@ -93,7 +93,7 @@ class AESGCMCipher:
                             raise ValueError("Truncated chunk ciphertext")
                         p_text = self.aesgcm.decrypt(non, c_text, None)
                         f_out.write(p_text)
-        except Exception as e:
+        except (InvalidTag, ValueError, struct.error) as e:
             logger.info(f"Falling back to legacy GCM decryption: {e}")
             with open(src_path, "rb") as f_in:
                 data = f_in.read()
