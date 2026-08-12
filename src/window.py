@@ -42,6 +42,30 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._clamd = ClamdService()
         self._polkit = PolkitHelper()
         self._scan_in_progress = False
+        self._active_tab = "dashboard"
+
+        # Initialize Recommendations List
+        self._recommendations = [
+            {
+                "title": "SYSTEM SCAN RECOMMENDATION",
+                "desc": "Let's run a one-time scan of your entire device to make sure it's threat-free to begin with. All connected mounts will be scanned as well.",
+                "action_label": "Scan",
+                "action_callback": lambda: self.start_scan(["/"]),
+            },
+            {
+                "title": "VIRUSTOTAL RECOMMENDATION",
+                "desc": "Enable VirusTotal integration to check individual files against 70+ antivirus engines in the cloud.",
+                "action_label": "Configure",
+                "action_callback": lambda: self._on_settings_click(None),
+            },
+            {
+                "title": "SIGNATURE DATABASE RECOMMENDATION",
+                "desc": "Check for and download the latest virus signature databases from freshclam and third-party feeds.",
+                "action_label": "Update",
+                "action_callback": lambda: self._on_update_db(None),
+            },
+        ]
+        self._current_rec_index = 0
 
         self._build_ui()
         self._load_state()
@@ -53,71 +77,195 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._overlay = Adw.ToastOverlay()
         self.set_content(self._overlay)
 
-        # Main box: header + content
-        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self._overlay.set_child(main_box)
+        # Main horizontal box split into Sidebar (left) and Content area (right)
+        main_layout = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self._overlay.set_child(main_layout)
 
-        # Header bar with status badge
+        # 1. Left column: SLEEK DARK SIDEBAR
+        self.sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        self.sidebar.add_css_class("sidebar-dark")
+        self.sidebar.set_size_request(240, -1)
+
+        # Shield container at the top
+        shield_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        shield_container.add_css_class("sidebar-shield-container")
+        shield_container.set_halign(Gtk.Align.CENTER)
+        shield_container.set_margin_top(28)
+        shield_container.set_margin_bottom(20)
+
+        self._sidebar_shield_image = Gtk.Image.new_from_icon_name(
+            "security-high-symbolic"
+        )
+        self._sidebar_shield_image.set_pixel_size(96)
+        self._sidebar_shield_image.add_css_class("sidebar-shield")
+        shield_container.append(self._sidebar_shield_image)
+
+        self._sidebar_shield_label = Gtk.Label(label="Protected")
+        self._sidebar_shield_label.add_css_class("sidebar-shield-label")
+        shield_container.append(self._sidebar_shield_label)
+
+        self.sidebar.append(shield_container)
+
+        # Sidebar navigation ListBox
+        self._nav_list = Gtk.ListBox()
+        self._nav_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self._nav_list.add_css_class("sidebar-nav")
+        self._nav_list.set_vexpand(True)
+        self._nav_list.connect("row-selected", self._on_sidebar_row_selected)
+
+        # Add Main Navigation Rows
+        self._add_sidebar_row(
+            self._nav_list, "dashboard", "Dashboard", "security-high-symbolic"
+        )
+        self._add_sidebar_row(
+            self._nav_list, "protection", "Protection", "security-high-symbolic"
+        )
+        self._add_sidebar_row(self._nav_list, "privacy", "Privacy", "eye-symbolic")
+        self._add_sidebar_row(
+            self._nav_list, "notifications", "Notifications", "bell-symbolic"
+        )
+
+        self.sidebar.append(self._nav_list)
+
+        # Sidebar bottom ListBox
+        self._bottom_nav_list = Gtk.ListBox()
+        self._bottom_nav_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self._bottom_nav_list.add_css_class("sidebar-nav")
+        self._bottom_nav_list.set_margin_bottom(16)
+        self._bottom_nav_list.connect("row-selected", self._on_sidebar_row_selected)
+
+        self._add_sidebar_row(
+            self._bottom_nav_list,
+            "my_account",
+            "My Account",
+            "avatar-default-symbolic",
+        )
+        self._add_sidebar_row(
+            self._bottom_nav_list,
+            "settings",
+            "Preferences",
+            "preferences-system-symbolic",
+        )
+        self._add_sidebar_row(
+            self._bottom_nav_list, "help", "Help", "help-about-symbolic"
+        )
+
+        self.sidebar.append(self._bottom_nav_list)
+        main_layout.append(self.sidebar)
+
+        # 2. Right column: LIGHT CONTENT CONTAINER
+        content_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        content_container.add_css_class("content-area-light")
+        content_container.set_hexpand(True)
+
+        # Header bar with standard options
         header = self._build_header()
-        main_box.append(header)
+        content_container.append(header)
 
         # View stack with switcher
         self._view_stack = Adw.ViewStack()
         self._view_stack.set_hexpand(True)
         self._view_stack.set_vexpand(True)
 
-        # Add views
+        # Add reorganized views
         self._scanner_view = self._build_scanner_view()
-        self._quarantine_view = self._build_quarantine_view()
-        self._history_view = self._build_history_view()
-        self._virustotal_view = self._build_virustotal_view()
-        self._database_view = self._build_database_view()
+        self._protection_view = self._build_protection_view()
+        self._privacy_view = self._build_privacy_view()
         self._settings_view = self._build_settings_view()
 
-        self._view_stack.add_titled_with_icon(
-            self._scanner_view, "scanner", "Dashboard", "security-high-symbolic"
-        )
-        self._view_stack.add_titled_with_icon(
-            self._quarantine_view,
-            "quarantine",
-            "Quarantine",
-            "changes-prevent-symbolic",
-        )
-        self._view_stack.add_titled_with_icon(
-            self._history_view, "history", "History", "document-open-recent-symbolic"
-        )
-        self._view_stack.add_titled_with_icon(
-            self._virustotal_view, "virustotal", "VirusTotal", "system-search-symbolic"
-        )
-        self._view_stack.add_titled_with_icon(
-            self._database_view, "database", "Database", "database"
-        )
-        self._view_stack.add_titled_with_icon(
-            self._settings_view, "settings", "Settings", "preferences-system-symbolic"
-        )
+        self._view_stack.add_named(self._scanner_view, "dashboard")
+        self._view_stack.add_named(self._protection_view, "protection")
+        self._view_stack.add_named(self._privacy_view, "privacy")
+        self._view_stack.add_named(self._settings_view, "settings")
 
-        # View switcher bar (bottom) + title (header)
-        switcher_bar = Adw.ViewSwitcherBar()
-        switcher_bar.set_stack(self._view_stack)
-        switcher_bar.set_reveal(True)
+        content_container.append(self._view_stack)
+        main_layout.append(content_container)
 
-        main_box.append(self._view_stack)
-        main_box.append(switcher_bar)
+        # Initialize recommendation label values
+        self._update_recommendation_ui()
+
+        # Select Dashboard row initially
+        GLib.idle_add(lambda: self._select_sidebar_row_by_id("dashboard"))
+
+    def _add_sidebar_row(self, listbox, row_id, label, icon_name):
+        row = Gtk.ListBoxRow()
+        row.row_id = row_id
+        row.add_css_class("sidebar-nav-row")
+
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        box.set_margin_start(16)
+        box.set_margin_end(16)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
+
+        img = Gtk.Image.new_from_icon_name(icon_name)
+        img.set_pixel_size(18)
+        img.add_css_class("sidebar-row-icon")
+
+        lbl = Gtk.Label(label=label)
+        lbl.add_css_class("sidebar-row-label")
+        lbl.set_xalign(0)
+
+        box.append(img)
+        box.append(lbl)
+        row.set_child(box)
+        listbox.append(row)
+        return row
+
+    def _select_sidebar_row_by_id(self, row_id):
+        """Helper to programmatically select sidebar row."""
+        for listbox in [self._nav_list, self._bottom_nav_list]:
+            child = listbox.get_first_child()
+            while child:
+                if getattr(child, "row_id", None) == row_id:
+                    listbox.select_row(child)
+                    return
+                child = child.get_next_sibling()
+
+    def _restore_sidebar_selection(self):
+        """Restore previous selected tab for transient sidebar actions."""
+        self._select_sidebar_row_by_id(self._active_tab)
+
+    def _on_sidebar_row_selected(self, listbox, row):
+        if not row:
+            return
+
+        # Clear selection of the other listbox to ensure only one item is active globally
+        if listbox == self._nav_list:
+            self._bottom_nav_list.select_row(None)
+        else:
+            self._nav_list.select_row(None)
+
+        row_id = getattr(row, "row_id", None)
+        if row_id in ["dashboard", "protection", "privacy", "settings"]:
+            self._active_tab = row_id
+            self._view_stack.set_visible_child_name(row_id)
+        elif row_id == "help":
+            self._on_help_clicked()
+            GLib.idle_add(self._restore_sidebar_selection)
+        elif row_id == "my_account":
+            self._show_toast("My Account feature is coming soon!")
+            GLib.idle_add(self._restore_sidebar_selection)
+        elif row_id == "notifications":
+            self._show_toast("Notifications: No new alerts.")
+            GLib.idle_add(self._restore_sidebar_selection)
+
+    def _on_help_clicked(self):
+        app = self.get_application()
+        if app:
+            app.activate_action("about", None)
 
     def _build_header(self):
-        """Build the header bar with prominent protection status badge."""
+        """Build the header bar with transparent/integrated style."""
         header = Adw.HeaderBar()
+        header.add_css_class("content-header")
         header.set_show_end_title_buttons(True)
         header.set_show_start_title_buttons(True)
 
-        # Left: Menu button
+        # Right: Menu button
         menu_button = Gtk.MenuButton()
         menu_button.set_icon_name("open-menu-symbolic")
         menu_button.set_tooltip_text("Main Menu")
-        # "accessible-name" non e' una GObject property valida in GTK4
-        # (solo "accessible-role" lo e'): impostarla con set_property()
-        # solleva TypeError e blocca l'avvio dell'intera applicazione.
-        # L'API corretta e' Gtk.Accessible.update_property().
         menu_button.update_property([Gtk.AccessibleProperty.LABEL], ["Main Menu"])
         menu = Gio.Menu()
         menu.append("Preferences", "app.preferences")
@@ -126,7 +274,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         menu_button.set_menu_model(menu)
         header.pack_end(menu_button)
 
-        # Center/Right: Status badge (Bitdefender style)
+        # Center: Minimal status label
         self._status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self._status_box.set_valign(Gtk.Align.CENTER)
 
@@ -145,19 +293,6 @@ class ClamGuardWindow(Adw.ApplicationWindow):
 
         header.set_title_widget(self._status_box)
 
-        # Quick scan button in header
-        self._quick_scan_btn = Gtk.Button(label="Quick Scan")
-        self._quick_scan_btn.add_css_class("suggested-action")
-        self._quick_scan_btn.connect("clicked", self._on_quick_scan)
-        self._quick_scan_btn.set_tooltip_text(
-            "Scan your home directory for immediate threats"
-        )
-        self._quick_scan_btn.update_property(
-            [Gtk.AccessibleProperty.LABEL],
-            ["Quick Scan — Scan your home directory for immediate threats"],
-        )
-        header.pack_start(self._quick_scan_btn)
-
         return header
 
     def _build_scanner_view(self):
@@ -172,13 +307,64 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         content.set_margin_end(24)
         scroll.set_child(content)
 
-        # Protection status card (large, prominent)
-        status_card = self._build_status_card()
-        content.append(status_card)
+        # Big high-contrast Title & Subtitle (Bitdefender style)
+        top_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        top_section.set_margin_start(6)
+        top_section.set_margin_bottom(6)
 
-        # Quick action cards grid
-        actions_grid = self._build_actions_grid()
-        content.append(actions_grid)
+        self._dashboard_main_title = Gtk.Label(label="You are safe")
+        self._dashboard_main_title.add_css_class("dashboard-large-title")
+        self._dashboard_main_title.set_xalign(0)
+
+        self._dashboard_main_desc = Gtk.Label(
+            label="We're looking out for your device and data."
+        )
+        self._dashboard_main_desc.add_css_class("dashboard-subtitle")
+        self._dashboard_main_desc.set_xalign(0)
+
+        top_section.append(self._dashboard_main_title)
+        top_section.append(self._dashboard_main_desc)
+        content.append(top_section)
+
+        # Recommendations paginated banner
+        self._dashboard_scan_buttons = {}
+        rec_banner = self._build_recommendation_banner()
+        content.append(rec_banner)
+
+        # Quick and System scanning cards grid
+        scan_grid = Gtk.Grid()
+        scan_grid.set_column_spacing(12)
+        scan_grid.set_row_spacing(12)
+        scan_grid.set_column_homogeneous(True)
+
+        quick_card = self._build_dashboard_scan_card(
+            "Quick Scan", "Protection", "media-record-symbolic", self._on_quick_scan
+        )
+        system_card = self._build_dashboard_scan_card(
+            "System Scan",
+            "Protection",
+            "drive-harddisk-symbolic",
+            self._on_system_scan,
+        )
+
+        scan_grid.attach(quick_card, 0, 0, 1, 1)
+        scan_grid.attach(system_card, 1, 0, 1, 1)
+        content.append(scan_grid)
+
+        # Bottom row grid (Stats, Safe Files, Web Protection)
+        bottom_grid = Gtk.Grid()
+        bottom_grid.set_column_spacing(12)
+        bottom_grid.set_row_spacing(12)
+        bottom_grid.set_column_homogeneous(True)
+
+        stats_card = self._build_stats_card()
+        safe_files_card = self._build_safe_files_card()
+        web_protection_card = self._build_web_protection_card()
+
+        bottom_grid.attach(stats_card, 0, 0, 1, 1)
+        bottom_grid.attach(safe_files_card, 1, 0, 1, 1)
+        bottom_grid.attach(web_protection_card, 2, 0, 1, 1)
+        content.append(bottom_grid)
 
         # Recent activity / threats area
         activity_box = self._build_activity_box()
@@ -186,162 +372,299 @@ class ClamGuardWindow(Adw.ApplicationWindow):
 
         return scroll
 
-    def _build_status_card(self):
-        """Large status card showing protection overview."""
-        card = Adw.Bin()
-        card.add_css_class("dashboard-card")
-        card.set_margin_bottom(12)
+    def _build_recommendation_banner(self):
+        banner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        banner.add_css_class("recommendation-banner")
 
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
-        box.set_margin_start(24)
-        box.set_margin_end(24)
-        box.set_margin_top(24)
-        box.set_margin_bottom(24)
-        card.set_child(box)
+        # Header Row: Title on left, pagination on right
+        header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        header_row.add_css_class("recommendation-header")
+        header_row.set_margin_start(16)
+        header_row.set_margin_end(16)
+        header_row.set_margin_top(12)
+        header_row.set_margin_bottom(8)
 
-        # Left: Big icon + status text
-        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        left.set_valign(Gtk.Align.CENTER)
-        left.set_halign(Gtk.Align.START)
-        left.set_hexpand(True)
+        # Icon + Title
+        title_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        rec_icon = Gtk.Image.new_from_icon_name("dialog-information-symbolic")
+        self._rec_title_label = Gtk.Label(label="SYSTEM SCAN RECOMMENDATION")
+        self._rec_title_label.add_css_class("recommendation-title")
+        title_box.append(rec_icon)
+        title_box.append(self._rec_title_label)
+        header_row.append(title_box)
 
-        self._big_status_icon = Gtk.Image.new_from_icon_name("security-high-symbolic")
-        self._big_status_icon.set_pixel_size(64)
-        left.append(self._big_status_icon)
+        # Spacer
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        header_row.append(spacer)
 
-        self._big_status_title = Gtk.Label(label="Your device is protected")
-        self._big_status_title.add_css_class("title-1")
-        left.append(self._big_status_title)
+        # Pagination controls
+        pag_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        pag_box.set_valign(Gtk.Align.CENTER)
 
-        self._big_status_desc = Gtk.Label(
-            label="Real-time scanning is active and virus definitions are up to date."
+        prev_btn = Gtk.Button(icon_name="go-previous-symbolic")
+        prev_btn.add_css_class("flat")
+        prev_btn.connect("clicked", self._on_prev_recommendation)
+
+        self._pag_label = Gtk.Label(label="1/3")
+        self._pag_label.add_css_class("recommendation-pag-label")
+
+        next_btn = Gtk.Button(icon_name="go-next-symbolic")
+        next_btn.add_css_class("flat")
+        next_btn.connect("clicked", self._on_next_recommendation)
+
+        pag_box.append(prev_btn)
+        pag_box.append(self._pag_label)
+        pag_box.append(next_btn)
+        header_row.append(pag_box)
+
+        banner.append(header_row)
+
+        # Separator line
+        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        banner.append(sep)
+
+        # Body Row: Text description on left, action buttons on right
+        body_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        body_row.set_margin_start(16)
+        body_row.set_margin_end(16)
+        body_row.set_margin_top(16)
+        body_row.set_margin_bottom(16)
+
+        self._rec_desc_label = Gtk.Label(
+            label="Let's run a one-time scan of your entire device to make sure it's threat-free to begin with."
         )
-        self._big_status_desc.add_css_class("body")
-        self._big_status_desc.set_wrap(True)
-        self._big_status_desc.set_xalign(0)
-        left.append(self._big_status_desc)
+        self._rec_desc_label.set_wrap(True)
+        self._rec_desc_label.set_xalign(0)
+        self._rec_desc_label.set_hexpand(True)
+        self._rec_desc_label.add_css_class("recommendation-desc")
+        body_row.append(self._rec_desc_label)
 
-        box.append(left)
+        action_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        action_box.set_valign(Gtk.Align.CENTER)
 
-        # Right: Stats column
-        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        right.set_valign(Gtk.Align.CENTER)
-        right.set_halign(Gtk.Align.END)
+        self._rec_action_btn = Gtk.Button(label="Scan")
+        self._rec_action_btn.add_css_class("blue-button")
+        self._rec_action_btn.connect("clicked", self._on_recommendation_action)
+        action_box.append(self._rec_action_btn)
 
-        stats = [
-            ("Threats blocked", "0", "dialog-error"),
-            ("Files scanned", "0", "folder-open"),
-            ("Last scan", "Never", "appointment-soon-symbolic"),
-        ]
-        # Riferimenti salvati per etichetta (non solo per l'intero box):
-        # _refresh_dashboard_stats() li aggiorna dopo ogni scansione e
-        # all'avvio. Prima di questo fix, self._stats_rows era solo il
-        # contenitore, mai riletto da nessuna parte: le tre righe restavano
-        # bloccate ai valori hardcoded impostati qui, anche dopo scansioni
-        # completate con file/minacce reali.
-        self._stat_labels = {}
-        for label, value, icon in stats:
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-            row.set_halign(Gtk.Align.END)
-            ic = Gtk.Image.new_from_icon_name(icon)
-            ic.set_pixel_size(16)
-            row.append(ic)
-            lbl = Gtk.Label(label=f"{label}: {value}")
-            lbl.add_css_class("dashboard-card-desc")
-            row.append(lbl)
-            right.append(row)
-            self._stat_labels[label] = lbl
+        not_now_btn = Gtk.Button(label="Not now")
+        not_now_btn.add_css_class("flat")
+        not_now_btn.add_css_class("not-now-button")
+        not_now_btn.connect("clicked", self._on_not_now_clicked)
+        action_box.append(not_now_btn)
 
-        self._stats_rows = right
-        box.append(right)
+        body_row.append(action_box)
+        banner.append(body_row)
+
+        return banner
+
+    def _update_recommendation_ui(self):
+        rec = self._recommendations[self._current_rec_index]
+        self._rec_title_label.set_text(rec["title"])
+        self._rec_desc_label.set_text(rec["desc"])
+        self._rec_action_btn.set_label(rec["action_label"])
+        self._pag_label.set_text(
+            f"{self._current_rec_index + 1}/{len(self._recommendations)}"
+        )
+
+    def _on_prev_recommendation(self, btn):
+        self._current_rec_index = (self._current_rec_index - 1) % len(
+            self._recommendations
+        )
+        self._update_recommendation_ui()
+
+    def _on_next_recommendation(self, btn):
+        self._current_rec_index = (self._current_rec_index + 1) % len(
+            self._recommendations
+        )
+        self._update_recommendation_ui()
+
+    def _on_recommendation_action(self, btn):
+        rec = self._recommendations[self._current_rec_index]
+        rec["action_callback"]()
+
+    def _on_not_now_clicked(self, btn):
+        self._on_next_recommendation(None)
+
+    def _build_dashboard_scan_card(self, title, subtitle, icon_name, callback):
+        card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        card.add_css_class("scan-card")
+        card.set_hexpand(True)
+        card.set_margin_start(6)
+        card.set_margin_end(6)
+
+        # Icon box
+        icon_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        icon_box.set_valign(Gtk.Align.CENTER)
+        icon_box.add_css_class("scan-card-icon-box")
+        img = Gtk.Image.new_from_icon_name(icon_name)
+        img.set_pixel_size(48)
+        img.add_css_class("scan-card-icon")
+        icon_box.append(img)
+        card.append(icon_box)
+
+        # Details and outline Button
+        details_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        details_box.set_hexpand(True)
+        details_box.set_valign(Gtk.Align.CENTER)
+
+        t_lbl = Gtk.Label(label=title)
+        t_lbl.add_css_class("scan-card-title")
+        t_lbl.set_xalign(0)
+
+        sub_lbl = Gtk.Label(label=subtitle)
+        sub_lbl.add_css_class("scan-card-subtitle")
+        sub_lbl.set_xalign(0)
+
+        btn = Gtk.Button(label="Start Scan")
+        btn.add_css_class("outline-button")
+        btn.set_halign(Gtk.Align.START)
+        btn.connect("clicked", callback)
+        self._dashboard_scan_buttons[title] = btn
+
+        details_box.append(t_lbl)
+        details_box.append(sub_lbl)
+        details_box.append(btn)
+
+        card.append(details_box)
+        return card
+
+    def _build_stats_card(self):
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card.add_css_class("scan-card")
+        card.set_hexpand(True)
+        card.set_margin_start(6)
+        card.set_margin_end(6)
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        img = Gtk.Image.new_from_icon_name("security-high-symbolic")
+        img.set_pixel_size(24)
+        img.add_css_class("stats-card-icon")
+
+        lbl = Gtk.Label(label="Scan Statistics")
+        lbl.add_css_class("scan-card-title")
+
+        header.append(img)
+        header.append(lbl)
+        card.append(header)
+
+        # Dynamic stats labels
+        self._stats_detail_label = Gtk.Label(label="0 threats · 0 files")
+        self._stats_detail_label.add_css_class("scan-card-subtitle")
+        self._stats_detail_label.set_xalign(0)
+        card.append(self._stats_detail_label)
+
+        btn = Gtk.Button(label="Scan Details")
+        btn.add_css_class("outline-button")
+        btn.set_halign(Gtk.Align.START)
+        btn.connect(
+            "clicked",
+            lambda *_: (
+                self._view_stack.set_visible_child_name("protection"),
+                self._select_sidebar_row_by_id("protection"),
+            ),
+        )
+        card.append(btn)
 
         return card
 
-    def _build_actions_grid(self):
-        """Grid of quick action cards (Bitdefender-style)."""
-        grid = Gtk.Grid()
-        grid.set_column_spacing(12)
-        grid.set_row_spacing(12)
-        grid.set_column_homogeneous(True)
-
-        actions = [
-            (
-                "System Scan",
-                "Deep scan of your entire system",
-                "drive-harddisk",
-                self._on_system_scan,
-            ),
-            (
-                "Custom Scan",
-                "Scan specific files or folders",
-                "folder-open",
-                self._on_custom_scan,
-            ),
-            (
-                "Quarantine",
-                "Manage isolated threats",
-                "changes-prevent-symbolic",
-                self._on_quarantine_click,
-            ),
-            (
-                "VirusTotal",
-                "Check files with 70+ engines",
-                "system-search-symbolic",
-                self._on_virustotal_click,
-            ),
-            (
-                "Update DB",
-                "Update virus definitions",
-                "view-refresh-symbolic",
-                self._on_update_db,
-            ),
-            (
-                "Settings",
-                "Configure protection options",
-                "preferences-system-symbolic",
-                self._on_settings_click,
-            ),
-        ]
-
-        self._action_buttons = {}
-        for i, (title, desc, icon, callback) in enumerate(actions):
-            card = self._build_action_card(title, desc, icon, callback)
-            self._action_buttons[title] = card
-            grid.attach(card, i % 3, i // 3, 1, 1)
-
-        return grid
-
-    def _build_action_card(self, title, description, icon_name, callback):
-        """Single action card with icon, title, description."""
-        card = Gtk.Button()
-        card.add_css_class("dashboard-card")
+    def _build_safe_files_card(self):
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card.add_css_class("scan-card")
         card.set_hexpand(True)
-        card.connect("clicked", callback)
-        card.update_property(
-            [Gtk.AccessibleProperty.LABEL], [f"{title} — {description}"]
+        card.set_margin_start(6)
+        card.set_margin_end(6)
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        img = Gtk.Image.new_from_icon_name("folder-open-symbolic")
+        img.set_pixel_size(24)
+        img.add_css_class("safe-files-icon")
+
+        lbl = Gtk.Label(label="Safe Files")
+        lbl.add_css_class("scan-card-title")
+
+        header.append(img)
+        header.append(lbl)
+
+        # Spacer & Switch
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        header.append(spacer)
+
+        sw = Gtk.Switch()
+        sw.set_valign(Gtk.Align.CENTER)
+        self._settings.bind(
+            "quarantine-encrypt", sw, "active", Gio.SettingsBindFlags.DEFAULT
         )
+        header.append(sw)
 
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_start(12)
-        box.set_margin_end(12)
-        box.set_margin_top(12)
-        box.set_margin_bottom(12)
-        card.set_child(box)
+        card.append(header)
 
-        icon = Gtk.Image.new_from_icon_name(icon_name)
-        icon.set_pixel_size(32)
-        icon.add_css_class("dashboard-icon")
-        box.append(icon)
+        desc = Gtk.Label(label="Encrypted protection for quarantined items.")
+        desc.add_css_class("scan-card-subtitle")
+        desc.set_xalign(0)
+        card.append(desc)
 
-        lbl_title = Gtk.Label(label=title)
-        lbl_title.add_css_class("dashboard-card-title")
-        box.append(lbl_title)
+        btn = Gtk.Button(label="Quarantined Files")
+        btn.add_css_class("outline-button")
+        btn.set_halign(Gtk.Align.START)
+        btn.connect(
+            "clicked",
+            lambda *_: (
+                self._view_stack.set_visible_child_name("privacy"),
+                self._select_sidebar_row_by_id("privacy"),
+            ),
+        )
+        card.append(btn)
 
-        lbl_desc = Gtk.Label(label=description)
-        lbl_desc.add_css_class("dashboard-card-desc")
-        lbl_desc.set_wrap(True)
-        lbl_desc.set_xalign(0)
-        box.append(lbl_desc)
+        return card
+
+    def _build_web_protection_card(self):
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card.add_css_class("scan-card")
+        card.set_hexpand(True)
+        card.set_margin_start(6)
+        card.set_margin_end(6)
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        img = Gtk.Image.new_from_icon_name("network-wired-symbolic")
+        img.set_pixel_size(24)
+        img.add_css_class("web-protection-icon")
+
+        lbl = Gtk.Label(label="Web Protection")
+        lbl.add_css_class("scan-card-title")
+
+        header.append(img)
+        header.append(lbl)
+        card.append(header)
+
+        # Browser active shields simulated indicators
+        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+
+        for browser in ["Chrome", "Firefox", "Local"]:
+            b_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            dot = Gtk.Label(label="●")
+            dot.add_css_class("green-dot")
+            b_lbl = Gtk.Label(label=browser)
+            b_lbl.add_css_class("browser-label")
+            b_box.append(dot)
+            b_box.append(b_lbl)
+            status_box.append(b_box)
+
+        card.append(status_box)
+
+        btn = Gtk.Button(label="Configure")
+        btn.add_css_class("outline-button")
+        btn.set_halign(Gtk.Align.START)
+        btn.connect(
+            "clicked",
+            lambda *_: (
+                self._view_stack.set_visible_child_name("settings"),
+                self._select_sidebar_row_by_id("settings"),
+            ),
+        )
+        card.append(btn)
 
         return card
 
@@ -372,28 +695,151 @@ class ClamGuardWindow(Adw.ApplicationWindow):
 
         return box
 
-    def _build_virustotal_view(self):
-        """View reale VirusTotal: seleziona un file, lo verifica tramite
-        VirusTotalClient (hash lookup con cache locale + upload opzionale
-        per file mai visti), mostra il risultato."""
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+    def _build_protection_view(self):
+        """Unified view containing Custom Scans, databases, and history list."""
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
         box.set_margin_top(24)
         box.set_margin_bottom(24)
         box.set_margin_start(24)
         box.set_margin_end(24)
+        scroll.set_child(box)
 
-        title = Gtk.Label(label="VirusTotal")
-        title.add_css_class("title-2")
+        title = Gtk.Label(label="Protection & Custom Scans")
+        title.add_css_class("view-main-title")
         title.set_xalign(0)
         box.append(title)
 
         desc = Gtk.Label(
-            label="Check a single file against 70+ antivirus engines via VirusTotal."
+            label="Run direct custom scans, manage downloaded third-party signature databases, and review recent history."
         )
+        desc.add_css_class("view-subtitle")
         desc.set_xalign(0)
         desc.set_wrap(True)
-        desc.add_css_class("dashboard-card-desc")
         box.append(desc)
+
+        # Section 1: Custom Scan Action Card
+        custom_scan_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        custom_scan_box.add_css_class("dashboard-card")
+        custom_scan_box.set_margin_bottom(12)
+
+        cs_details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        cs_details.set_hexpand(True)
+        cs_title = Gtk.Label(label="Custom Scan")
+        cs_title.add_css_class("scan-card-title")
+        cs_title.set_xalign(0)
+        cs_desc = Gtk.Label(
+            label="Select specific files or folders to check for malware."
+        )
+        cs_desc.add_css_class("scan-card-subtitle")
+        cs_desc.set_xalign(0)
+        cs_details.append(cs_title)
+        cs_details.append(cs_desc)
+        custom_scan_box.append(cs_details)
+
+        self._custom_scan_btn = Gtk.Button(label="Choose Location...")
+        self._custom_scan_btn.add_css_class("blue-button")
+        self._custom_scan_btn.set_valign(Gtk.Align.CENTER)
+        self._custom_scan_btn.connect("clicked", self._on_custom_scan)
+        custom_scan_box.append(self._custom_scan_btn)
+        box.append(custom_scan_box)
+
+        # Section 2: Databases
+        db_title = Gtk.Label(label="Signature Databases")
+        db_title.add_css_class("title-2")
+        db_title.set_xalign(0)
+        box.append(db_title)
+
+        db_info = Gtk.Label(
+            label="Downloaded signatures are used automatically by local scans. "
+            "Installing them into the system database also makes them "
+            "available to a running clamd daemon (requires admin rights)."
+        )
+        db_info.set_wrap(True)
+        db_info.set_xalign(0)
+        db_info.add_css_class("body")
+        db_info.set_opacity(0.7)
+        box.append(db_info)
+
+        self._database_list = Gtk.ListBox()
+        self._database_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        self._database_list.add_css_class("boxed-list")
+        box.append(self._database_list)
+
+        install_btn = Gtk.Button(label="Install into system database…")
+        install_btn.add_css_class("suggested-action")
+        install_btn.set_halign(Gtk.Align.START)
+        install_btn.connect("clicked", self._on_install_signatures_clicked)
+        box.append(install_btn)
+        self._install_signatures_btn = install_btn
+
+        # Section 3: History
+        hist_title = Gtk.Label(label="Recent Scan History")
+        hist_title.add_css_class("title-2")
+        hist_title.set_xalign(0)
+        box.append(hist_title)
+
+        self._history_list = Gtk.ListBox()
+        self._history_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        self._history_list.add_css_class("boxed-list")
+        box.append(self._history_list)
+
+        self._refresh_database_view()
+        self._refresh_history_view()
+
+        return scroll
+
+    def _build_privacy_view(self):
+        """Unified view containing Quarantine and VirusTotal lookup interfaces."""
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
+        box.set_margin_top(24)
+        box.set_margin_bottom(24)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+        scroll.set_child(box)
+
+        title = Gtk.Label(label="Privacy & Threat Isolation")
+        title.add_css_class("view-main-title")
+        title.set_xalign(0)
+        box.append(title)
+
+        desc = Gtk.Label(
+            label="Manage quarantined threats or analyze suspicious files with the power of VirusTotal."
+        )
+        desc.add_css_class("view-subtitle")
+        desc.set_xalign(0)
+        desc.set_wrap(True)
+        box.append(desc)
+
+        # Section 1: Quarantined Files
+        q_title = Gtk.Label(label="Quarantined Files")
+        q_title.add_css_class("title-2")
+        q_title.set_xalign(0)
+        box.append(q_title)
+
+        self._quarantine_list = Gtk.ListBox()
+        self._quarantine_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        self._quarantine_list.add_css_class("boxed-list")
+        box.append(self._quarantine_list)
+
+        # Section 2: VirusTotal Integration
+        vt_title = Gtk.Label(label="VirusTotal Integration")
+        vt_title.add_css_class("title-2")
+        vt_title.set_xalign(0)
+        box.append(vt_title)
+
+        vt_desc = Gtk.Label(
+            label="Check a single file against 70+ antivirus engines via VirusTotal."
+        )
+        vt_desc.set_xalign(0)
+        vt_desc.set_wrap(True)
+        vt_desc.add_css_class("dashboard-card-desc")
+        box.append(vt_desc)
 
         choose_btn = Gtk.Button(label="Choose File to Check")
         choose_btn.add_css_class("suggested-action")
@@ -410,16 +856,15 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._vt_result_group.set_visible(False)
         box.append(self._vt_result_group)
 
+        self._refresh_quarantine_view()
         self._refresh_virustotal_view()
-        return box
+
+        return scroll
 
     def _refresh_virustotal_view(self):
-        """Mostra lo stato corrente (integrazione disabilitata / chiave
-        API mancante), se pertinente."""
-        # Adw.PreferencesGroup non espone i figli aggiunti tramite add()
-        # via get_first_child() (sono avvolti in contenitori interni):
-        # per svuotare il gruppo servono i riferimenti diretti alle righe
-        # effettivamente passate ad add(), tenuti a parte in una lista.
+        """Display status for VirusTotal."""
+        if not hasattr(self, "_vt_status_group") or not self._vt_status_group:
+            return
         for row in self._vt_status_rows:
             self._vt_status_group.remove(row)
         self._vt_status_rows = []
@@ -541,32 +986,10 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._show_toast(f"VirusTotal check complete for {filename}")
         return False
 
-    def _build_quarantine_view(self):
-        """View reale della quarantena, collegata a QuarantineManager."""
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.set_margin_top(24)
-        box.set_margin_bottom(24)
-        box.set_margin_start(24)
-        box.set_margin_end(24)
-
-        title = Gtk.Label(label="Quarantined Files")
-        title.add_css_class("title-2")
-        title.set_xalign(0)
-        box.append(title)
-
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_vexpand(True)
-        self._quarantine_list = Gtk.ListBox()
-        self._quarantine_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        self._quarantine_list.add_css_class("boxed-list")
-        scroll.set_child(self._quarantine_list)
-        box.append(scroll)
-
-        self._refresh_quarantine_view()
-        return box
-
     def _refresh_quarantine_view(self):
-        """Ricarica la lista quarantena dal database reale."""
+        """Reload quarantined files list."""
+        if not hasattr(self, "_quarantine_list") or not self._quarantine_list:
+            return
         child = self._quarantine_list.get_first_child()
         while child is not None:
             nxt = child.get_next_sibling()
@@ -653,32 +1076,10 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             )
             self._refresh_quarantine_view()
 
-    def _build_history_view(self):
-        """View reale dello storico scansioni, collegata a HistoryManager."""
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.set_margin_top(24)
-        box.set_margin_bottom(24)
-        box.set_margin_start(24)
-        box.set_margin_end(24)
-
-        title = Gtk.Label(label="Scan History")
-        title.add_css_class("title-2")
-        title.set_xalign(0)
-        box.append(title)
-
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_vexpand(True)
-        self._history_list = Gtk.ListBox()
-        self._history_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        self._history_list.add_css_class("boxed-list")
-        scroll.set_child(self._history_list)
-        box.append(scroll)
-
-        self._refresh_history_view()
-        return box
-
     def _refresh_history_view(self):
-        """Ricarica lo storico scansioni dal database reale."""
+        """Reload scan history."""
+        if not hasattr(self, "_history_list") or not self._history_list:
+            return
         child = self._history_list.get_first_child()
         while child is not None:
             nxt = child.get_next_sibling()
@@ -709,50 +1110,10 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             )
             self._history_list.append(row)
 
-    def _build_database_view(self):
-        """View reale dello stato firme di terze parti, con installazione
-        privilegiata in /var/lib/clamav via helper pkexec."""
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.set_margin_top(24)
-        box.set_margin_bottom(24)
-        box.set_margin_start(24)
-        box.set_margin_end(24)
-
-        title = Gtk.Label(label="Third-Party Signature Databases")
-        title.add_css_class("title-2")
-        title.set_xalign(0)
-        box.append(title)
-
-        info = Gtk.Label(
-            label="Downloaded signatures are used automatically by local scans. "
-            "Installing them into the system database also makes them "
-            "available to a running clamd daemon (requires admin rights)."
-        )
-        info.set_wrap(True)
-        info.set_xalign(0)
-        info.add_css_class("body")
-        info.set_opacity(0.7)
-        box.append(info)
-
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_vexpand(True)
-        self._database_list = Gtk.ListBox()
-        self._database_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        self._database_list.add_css_class("boxed-list")
-        scroll.set_child(self._database_list)
-        box.append(scroll)
-
-        install_btn = Gtk.Button(label="Install into system database…")
-        install_btn.add_css_class("suggested-action")
-        install_btn.set_halign(Gtk.Align.START)
-        install_btn.connect("clicked", self._on_install_signatures_clicked)
-        box.append(install_btn)
-        self._install_signatures_btn = install_btn
-
-        self._refresh_database_view()
-        return box
-
     def _refresh_database_view(self):
+        """Reload signature database feeds."""
+        if not hasattr(self, "_database_list") or not self._database_list:
+            return
         child = self._database_list.get_first_child()
         while child is not None:
             nxt = child.get_next_sibling()
@@ -778,8 +1139,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             self._database_list.append(row)
 
     def _build_settings_view(self):
-        """View reale delle impostazioni, collegata allo schema GSettings
-        e al CredentialsService per la chiave API VirusTotal."""
+        """Settings page connected to GSettings schema."""
         scroll = Gtk.ScrolledWindow()
         scroll.set_vexpand(True)
 
@@ -934,14 +1294,13 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         def _callback(success, output):
             GLib.idle_add(self._on_install_signatures_done, success, output)
 
-        # PolkitHelper instrada automaticamente via flatpak-spawn --host se
-        # dentro un sandbox Flatpak (vedi services/polkit.py).
         self._polkit.run_elevated(
             "/usr/bin/clamguard-apply-signatures", args, _callback
         )
 
     def _on_install_signatures_done(self, success, output):
-        self._install_signatures_btn.set_sensitive(True)
+        if hasattr(self, "_install_signatures_btn") and self._install_signatures_btn:
+            self._install_signatures_btn.set_sensitive(True)
 
         if success:
             self._show_toast("Signatures installed into the system database")
@@ -952,12 +1311,12 @@ class ClamGuardWindow(Adw.ApplicationWindow):
                 "run `sudo clamguard-daemon install-privileged-helper`)",
                 Adw.ToastPriority.HIGH,
             )
-        return False  # non ripetere (GLib.idle_add one-shot)
+        return False
 
     # --- Callbacks ---
 
     def _on_quick_scan(self, btn):
-        self.start_scan(["/home"])
+        self.start_scan([os.path.expanduser("~")])
 
     def _on_system_scan(self, btn):
         self.start_scan(["/"])
@@ -978,13 +1337,16 @@ class ClamGuardWindow(Adw.ApplicationWindow):
 
     def _on_quarantine_click(self, btn):
         self._refresh_quarantine_view()
-        self._view_stack.set_visible_child_name("quarantine")
+        self._view_stack.set_visible_child_name("privacy")
+        self._select_sidebar_row_by_id("privacy")
 
     def _on_virustotal_click(self, btn):
-        self._view_stack.set_visible_child_name("virustotal")
+        self._view_stack.set_visible_child_name("privacy")
+        self._select_sidebar_row_by_id("privacy")
 
     def _on_update_db(self, btn):
-        btn.set_sensitive(False)
+        if btn:
+            btn.set_sensitive(False)
         self._show_toast("Updating virus definitions...")
         thread = threading.Thread(
             target=self._run_update_db_thread, args=(btn,), daemon=True
@@ -995,39 +1357,46 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         def _callback(success, output):
             GLib.idle_add(self._on_update_done, success, output, btn)
 
-        # Trigger via polkit in background thread
         self._polkit.run_elevated("/usr/bin/freshclam", [], _callback)
 
     def _on_update_done(self, success, output, btn):
-        btn.set_sensitive(True)
+        if btn:
+            btn.set_sensitive(True)
         if success:
             self._show_toast("Virus definitions updated successfully")
             self._update_status()
         else:
             self._show_toast("Update failed. Check logs.", Adw.ToastPriority.HIGH)
-        return False  # non ripetere (GLib.idle_add one-shot)
+        return False
 
     def _on_settings_click(self, btn):
         self._view_stack.set_visible_child_name("settings")
+        self._select_sidebar_row_by_id("settings")
 
     # --- Public API ---
 
     def _set_scan_buttons_sensitive(self, sensitive):
         """Enable or disable scan buttons to prevent concurrent scans and provide visual feedback."""
-        if hasattr(self, "_quick_scan_btn") and self._quick_scan_btn:
-            self._quick_scan_btn.set_sensitive(sensitive)
-            self._quick_scan_btn.set_label(
-                "Scanning..." if not sensitive else "Quick Scan"
-            )
+        if hasattr(self, "_dashboard_scan_buttons"):
+            for title, btn in self._dashboard_scan_buttons.items():
+                btn.set_sensitive(sensitive)
+                if not sensitive:
+                    btn.set_label("Scanning...")
+                else:
+                    btn.set_label("Start Scan")
 
-        if hasattr(self, "_action_buttons"):
-            for title in ["System Scan", "Custom Scan"]:
-                btn = self._action_buttons.get(title)
-                if btn:
-                    btn.set_sensitive(sensitive)
+        if hasattr(self, "_custom_scan_btn") and self._custom_scan_btn:
+            self._custom_scan_btn.set_sensitive(sensitive)
+            if not sensitive:
+                self._custom_scan_btn.set_label("Scanning...")
+            else:
+                self._custom_scan_btn.set_label("Choose Location...")
+
+        if hasattr(self, "_rec_action_btn") and self._rec_action_btn:
+            self._rec_action_btn.set_sensitive(sensitive)
 
     def start_scan(self, paths):
-        """Initiate a scan on the given paths (esegue realmente ClamAVScanner)."""
+        """Initiate a scan on the given paths."""
         if not paths:
             return
         if self._scan_in_progress:
@@ -1039,12 +1408,6 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._show_toast(f"Scanning {len(paths)} location(s)...")
         scan_id = self._history.start_scan("manual", ", ".join(paths))
 
-        # clamscan/clamd sono operazioni I/O-bound potenzialmente lunghe:
-        # vanno eseguite fuori dal thread del main loop GTK, altrimenti la
-        # UI si blocca per l'intera durata della scansione. asyncio.run()
-        # gira in un thread dedicato; i risultati tornano al main loop via
-        # GLib.idle_add, l'unico modo sicuro di toccare i widget GTK da
-        # un altro thread.
         thread = threading.Thread(
             target=self._run_scan_thread, args=(paths, scan_id), daemon=True
         )
@@ -1063,7 +1426,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._scan_in_progress = False
         self._set_scan_buttons_sensitive(True)
         self._show_toast(f"Scan failed: {message}", Adw.ToastPriority.HIGH)
-        return False  # non ripetere (GLib.idle_add one-shot)
+        return False
 
     def _on_scan_complete(self, results, scan_id):
         self._scan_in_progress = False
@@ -1089,7 +1452,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         else:
             self._show_toast(f"Scan complete: {len(results)} file(s), no threats found")
 
-        return False  # non ripetere (GLib.idle_add one-shot)
+        return False
 
     def _prompt_quarantine(self, infected):
         dialog = Adw.MessageDialog(
@@ -1126,11 +1489,13 @@ class ClamGuardWindow(Adw.ApplicationWindow):
 
     def show_quarantine(self):
         self._refresh_quarantine_view()
-        self._view_stack.set_visible_child_name("quarantine")
+        self._view_stack.set_visible_child_name("privacy")
+        self._select_sidebar_row_by_id("privacy")
         self.present()
 
     def show_settings(self):
         self._view_stack.set_visible_child_name("settings")
+        self._select_sidebar_row_by_id("settings")
         self.present()
 
     def _show_toast(self, message, priority=Adw.ToastPriority.NORMAL):
@@ -1157,7 +1522,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         """Update protection status badge and dashboard."""
         thread = threading.Thread(target=self._run_update_status_thread, daemon=True)
         thread.start()
-        return True  # Continue timeout
+        return True
 
     def _run_update_status_thread(self):
         try:
@@ -1176,8 +1541,8 @@ class ClamGuardWindow(Adw.ApplicationWindow):
                     "protected",
                     "Protected",
                     "security-high-symbolic",
-                    "Your device is protected",
-                    "Real-time scanning is active and virus definitions are up to date.",
+                    "You are safe",
+                    "We're looking out for your device and data.",
                 )
             elif clamd_ok:
                 self._set_status(
@@ -1198,14 +1563,6 @@ class ClamGuardWindow(Adw.ApplicationWindow):
 
             # Update last update label
             if db_age == float("inf"):
-                # Nessun database ClamAV trovato sul sistema (caso comune
-                # su un'installazione pulita, prima del primo "Update DB").
-                # db_age è +inf in questo caso: float('inf') // 86400 in
-                # Python produce nan (non inf), e int(nan) solleva
-                # ValueError -- prima di questo fix l'intera funzione
-                # falliva silenziosamente ad ogni ciclo (loggato come
-                # errore, mai mostrato all'utente), lasciando l'etichetta
-                # bloccata sul testo iniziale hardcoded "Updated: Today".
                 update_text = "Updated: Never"
             elif db_age < 3600:
                 update_text = "Updated: Just now"
@@ -1213,43 +1570,30 @@ class ClamGuardWindow(Adw.ApplicationWindow):
                 update_text = f"Updated: {int(db_age // 3600)}h ago"
             else:
                 update_text = f"Updated: {int(db_age // 86400)}d ago"
-            self._update_label.set_text(update_text)
+
+            if hasattr(self, "_update_label") and self._update_label:
+                self._update_label.set_text(update_text)
 
         except (OSError, ValueError) as e:
             logger.error(f"Status update complete error: {e}")
         return False
 
     def _refresh_dashboard_stats(self):
-        """Aggiorna le tre righe statistiche della dashboard (Threats
-        blocked / Files scanned / Last scan) con i totali reali dalla
-        cronologia scansioni. Prima di questo fix questi tre Label
-        venivano impostati una sola volta alla creazione della UI e mai
-        più riletti: restavano bloccati a "0 / 0 / Never" anche dopo
-        scansioni completate con file e minacce reali."""
+        """Update scan stats and dashboard elements."""
         try:
             stats = self._history.get_summary_stats()
         except (OSError, ValueError) as e:
             logger.error(f"Dashboard stats refresh error: {e}")
             return
 
-        threats_lbl = self._stat_labels.get("Threats blocked")
-        if threats_lbl:
-            threats_lbl.set_text(f"Threats blocked: {stats['total_threats_found']}")
-
-        files_lbl = self._stat_labels.get("Files scanned")
-        if files_lbl:
-            files_lbl.set_text(f"Files scanned: {stats['total_files_scanned']}")
-
-        last_scan_lbl = self._stat_labels.get("Last scan")
-        if last_scan_lbl:
-            last_scan_lbl.set_text(
-                f"Last scan: {self._format_relative_time(stats['last_scan'])}"
+        if hasattr(self, "_stats_detail_label") and self._stats_detail_label:
+            self._stats_detail_label.set_text(
+                f"{stats['total_threats_found']} threats · {stats['total_files_scanned']} files scanned"
             )
 
     @staticmethod
     def _format_relative_time(dt) -> str:
-        """Formatta un datetime come 'Just now' / 'Xh ago' / 'Xd ago' /
-        'Never', stesso criterio già usato per l'età del database."""
+        """Format a datetime as relative string."""
         if dt is None:
             return "Never"
         age = datetime.now(timezone.utc).timestamp() - dt.timestamp()
@@ -1261,24 +1605,38 @@ class ClamGuardWindow(Adw.ApplicationWindow):
 
     def _set_status(self, level, badge_text, icon_name, title, desc):
         """Update status widgets with given level."""
-        # Remove old classes
+        # Update header badge
         for cls in [
             "status-badge-protected",
             "status-badge-warning",
             "status-badge-critical",
         ]:
-            self._status_label.remove_css_class(cls)
-            self._big_status_title.remove_css_class(cls)
+            if hasattr(self, "_status_label") and self._status_label:
+                self._status_label.remove_css_class(cls)
 
-        # Add new class
         css_class = f"status-badge-{level}"
-        self._status_label.add_css_class(css_class)
-        self._status_label.set_text(badge_text)
-        self._status_icon.set_from_icon_name(icon_name)
+        if hasattr(self, "_status_label") and self._status_label:
+            self._status_label.add_css_class(css_class)
+            self._status_label.set_text(badge_text)
 
-        self._big_status_icon.set_from_icon_name(icon_name)
-        self._big_status_title.set_text(title)
-        self._big_status_desc.set_text(desc)
+        if hasattr(self, "_status_icon") and self._status_icon:
+            self._status_icon.set_from_icon_name(icon_name)
+
+        # Update sidebar shield
+        if hasattr(self, "_sidebar_shield_image") and self._sidebar_shield_image:
+            self._sidebar_shield_image.set_from_icon_name(icon_name)
+            for cls in ["shield-protected", "shield-warning", "shield-critical"]:
+                self._sidebar_shield_image.remove_css_class(cls)
+                self._sidebar_shield_label.remove_css_class(cls)
+            self._sidebar_shield_image.add_css_class(f"shield-{level}")
+            self._sidebar_shield_label.add_css_class(f"shield-{level}")
+            self._sidebar_shield_label.set_text(badge_text)
+
+        # Update dashboard big title & subtitle
+        if hasattr(self, "_dashboard_main_title") and self._dashboard_main_title:
+            self._dashboard_main_title.set_text(title)
+        if hasattr(self, "_dashboard_main_desc") and self._dashboard_main_desc:
+            self._dashboard_main_desc.set_text(desc)
 
     def do_close_request(self):
         """Save window state before close."""
