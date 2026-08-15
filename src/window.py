@@ -5,6 +5,7 @@ GTK4 / Libadwaita native implementation
 """
 
 import asyncio
+import base64
 import logging
 import os
 import threading
@@ -36,9 +37,23 @@ class ClamGuardWindow(Adw.ApplicationWindow):
 
         self._settings = Gio.Settings.new("io.github.d3msudo.clamguard")
         self._quarantine = QuarantineManager()
+        # QA #3 (alto): lo switch "Encrypt quarantined files" (esposto sia
+        # in Preferences sia nella card "Safe Files" della Dashboard,
+        # entrambe collegate alla stessa chiave GSettings) non chiamava
+        # mai QuarantineManager.set_encryption(), nonostante il codice
+        # AES-256-GCM fosse già pronto e testato: il toggle non cifrava
+        # nulla. "changed::" (non notify::active su un singolo widget)
+        # copre entrambe le superfici UI con un solo punto di applicazione.
+        self._settings.connect(
+            "changed::quarantine-encrypt", self._apply_quarantine_encryption_setting
+        )
+        self._apply_quarantine_encryption_setting()
         self._history = HistoryManager()
         self._third_party = ThirdPartyDBManager()
-        self._clamav = ClamAVScanner(extra_db_dirs=[self._third_party.sig_dir])
+        self._clamav = ClamAVScanner(
+            extra_db_dirs=[self._third_party.sig_dir],
+            prefer_clamd=self._settings.get_boolean("use-clamd"),
+        )
         self._clamd = ClamdService()
         self._polkit = PolkitHelper()
         self._scan_in_progress = False
@@ -120,9 +135,14 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._add_sidebar_row(
             self._nav_list, "protection", "Protection", "security-high-symbolic"
         )
-        self._add_sidebar_row(self._nav_list, "privacy", "Privacy", "eye-symbolic")
         self._add_sidebar_row(
-            self._nav_list, "notifications", "Notifications", "bell-symbolic"
+            self._nav_list, "privacy", "Privacy", "view-conceal-symbolic"
+        )
+        self._add_sidebar_row(
+            self._nav_list,
+            "notifications",
+            "Notifications",
+            "preferences-system-notifications-symbolic",
         )
 
         self.sidebar.append(self._nav_list)
@@ -134,12 +154,15 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._bottom_nav_list.set_margin_bottom(16)
         self._bottom_nav_list.connect("row-selected", self._on_sidebar_row_selected)
 
-        self._add_sidebar_row(
-            self._bottom_nav_list,
-            "my_account",
-            "My Account",
-            "avatar-default-symbolic",
-        )
+        # QA #8: "My Account" è stata rimossa. Era una voce della sidebar
+        # visivamente identica alle pagine reali (Dashboard/Protection/
+        # Privacy/Preferences), ma al click mostrava solo un toast
+        # ("feature is coming soon!") senza cambiare la vista visibile —
+        # un utente che ci clicca si aspetta una pagina, non un messaggio
+        # fugace con la pagina precedente ancora in primo piano. Nessuna
+        # funzionalità reale era ancora definita per questa voce: meglio
+        # non promettere una destinazione che non esiste che reintrodurla
+        # quando ci sarà un vero account da gestire.
         self._add_sidebar_row(
             self._bottom_nav_list,
             "settings",
@@ -171,11 +194,13 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._scanner_view = self._build_scanner_view()
         self._protection_view = self._build_protection_view()
         self._privacy_view = self._build_privacy_view()
+        self._notifications_view = self._build_notifications_view()
         self._settings_view = self._build_settings_view()
 
         self._view_stack.add_named(self._scanner_view, "dashboard")
         self._view_stack.add_named(self._protection_view, "protection")
         self._view_stack.add_named(self._privacy_view, "privacy")
+        self._view_stack.add_named(self._notifications_view, "notifications")
         self._view_stack.add_named(self._settings_view, "settings")
 
         content_container.append(self._view_stack)
@@ -237,17 +262,17 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             self._nav_list.select_row(None)
 
         row_id = getattr(row, "row_id", None)
-        if row_id in ["dashboard", "protection", "privacy", "settings"]:
+        if row_id in [
+            "dashboard",
+            "protection",
+            "privacy",
+            "notifications",
+            "settings",
+        ]:
             self._active_tab = row_id
             self._view_stack.set_visible_child_name(row_id)
         elif row_id == "help":
             self._on_help_clicked()
-            GLib.idle_add(self._restore_sidebar_selection)
-        elif row_id == "my_account":
-            self._show_toast("My Account feature is coming soon!")
-            GLib.idle_add(self._restore_sidebar_selection)
-        elif row_id == "notifications":
-            self._show_toast("Notifications: No new alerts.")
             GLib.idle_add(self._restore_sidebar_selection)
 
     def _on_help_clicked(self):
@@ -332,10 +357,22 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         content.append(rec_banner)
 
         # Quick and System scanning cards grid
-        scan_grid = Gtk.Grid()
+        # QA #6: Gtk.Grid con set_column_homogeneous(True) forza OGNI
+        # colonna alla larghezza della più larga tra le due — se una
+        # card richiede più spazio del previsto, la finestra si apre più
+        # larga del set_default_size(1100, 780) configurato, tagliando i
+        # contenuti su schermi più piccoli (verificato: 1324px reali
+        # invece di 1100px). Gtk.FlowBox supporta il wrap nativo: le card
+        # vanno a capo (una sotto l'altra) quando lo spazio disponibile
+        # non basta per affiancarle, invece di forzare la finestra ad
+        # allargarsi oltre le dimensioni configurate.
+        scan_grid = Gtk.FlowBox()
+        scan_grid.set_selection_mode(Gtk.SelectionMode.NONE)
+        scan_grid.set_homogeneous(True)
         scan_grid.set_column_spacing(12)
         scan_grid.set_row_spacing(12)
-        scan_grid.set_column_homogeneous(True)
+        scan_grid.set_max_children_per_line(2)
+        scan_grid.set_min_children_per_line(1)
 
         quick_card = self._build_dashboard_scan_card(
             "Quick Scan", "Protection", "media-record-symbolic", self._on_quick_scan
@@ -347,23 +384,29 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             self._on_system_scan,
         )
 
-        scan_grid.attach(quick_card, 0, 0, 1, 1)
-        scan_grid.attach(system_card, 1, 0, 1, 1)
+        scan_grid.append(quick_card)
+        scan_grid.append(system_card)
         content.append(scan_grid)
 
-        # Bottom row grid (Stats, Safe Files, Web Protection)
-        bottom_grid = Gtk.Grid()
+        # Bottom row grid (Stats, Safe Files, Web Protection) — stesso
+        # ragionamento del blocco sopra: FlowBox invece di Grid omogeneo,
+        # per permettere alle 3 card di andare a capo (2+1 o 1+1+1) su
+        # finestre strette invece di forzare un overflow orizzontale.
+        bottom_grid = Gtk.FlowBox()
+        bottom_grid.set_selection_mode(Gtk.SelectionMode.NONE)
+        bottom_grid.set_homogeneous(True)
         bottom_grid.set_column_spacing(12)
         bottom_grid.set_row_spacing(12)
-        bottom_grid.set_column_homogeneous(True)
+        bottom_grid.set_max_children_per_line(3)
+        bottom_grid.set_min_children_per_line(1)
 
         stats_card = self._build_stats_card()
         safe_files_card = self._build_safe_files_card()
         web_protection_card = self._build_web_protection_card()
 
-        bottom_grid.attach(stats_card, 0, 0, 1, 1)
-        bottom_grid.attach(safe_files_card, 1, 0, 1, 1)
-        bottom_grid.attach(web_protection_card, 2, 0, 1, 1)
+        bottom_grid.append(stats_card)
+        bottom_grid.append(safe_files_card)
+        bottom_grid.append(web_protection_card)
         content.append(bottom_grid)
 
         # Recent activity / threats area
@@ -694,6 +737,49 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._activity_list.append(placeholder)
 
         return box
+
+    def _build_notifications_view(self):
+        """QA #8: prima, "Notifications" nella sidebar era una voce che
+        sembrava una pagina (stesso stile di Dashboard/Protection/Privacy)
+        ma al click mostrava solo un toast fugace senza mai cambiare la
+        vista visibile. Qui diventa una vera pagina nel view stack, con
+        lo stesso schema (titolo + descrizione + lista) già usato dalle
+        altre viste per coerenza visiva."""
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
+        box.set_margin_top(24)
+        box.set_margin_bottom(24)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+        scroll.set_child(box)
+
+        title = Gtk.Label(label="Notifications")
+        title.add_css_class("view-main-title")
+        title.set_xalign(0)
+        box.append(title)
+
+        desc = Gtk.Label(
+            label="Alerts about threats found, completed scans, and database updates."
+        )
+        desc.add_css_class("view-subtitle")
+        desc.set_xalign(0)
+        desc.set_wrap(True)
+        box.append(desc)
+
+        self._notifications_list = Gtk.ListBox()
+        self._notifications_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        self._notifications_list.add_css_class("boxed-list")
+        box.append(self._notifications_list)
+
+        empty_row = Adw.ActionRow()
+        empty_row.set_title("No new notifications")
+        empty_row.set_subtitle("You're all caught up.")
+        empty_row.set_icon_name("emblem-ok-symbolic")
+        self._notifications_list.append(empty_row)
+
+        return scroll
 
     def _build_protection_view(self):
         """Unified view containing Custom Scans, databases, and history list."""
@@ -1157,6 +1243,7 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._settings.bind(
             "use-clamd", use_clamd_row, "active", Gio.SettingsBindFlags.DEFAULT
         )
+        use_clamd_row.connect("notify::active", self._on_use_clamd_changed)
         scanning_group.add(use_clamd_row)
 
         socket_row = Adw.EntryRow()
@@ -1248,6 +1335,62 @@ class ClamGuardWindow(Adw.ApplicationWindow):
 
         return scroll
 
+    def _apply_quarantine_encryption_setting(self, *_args):
+        enabled = self._settings.get_boolean("quarantine-encrypt")
+        thread = threading.Thread(
+            target=self._run_apply_quarantine_encryption,
+            args=(enabled,),
+            daemon=True,
+        )
+        thread.start()
+
+    def _run_apply_quarantine_encryption(self, enabled):
+        if not enabled:
+            self._quarantine.set_encryption()
+            return
+
+        from .services.credentials import CredentialsService
+
+        creds = CredentialsService()
+        key_b64 = creds.get_quarantine_key()
+        if key_b64:
+            try:
+                key_bytes = base64.b64decode(key_b64)
+            except (ValueError, TypeError) as e:
+                logger.error(f"Chiave quarantena salvata non valida: {e}")
+                key_b64 = ""
+        if not key_b64:
+            # Prima attivazione: genera una chiave AES-256 casuale e la
+            # persiste via libsecret, così sopravvive a riavvii dell'app
+            # e resta utilizzabile per ripristinare file già in
+            # quarantena. Nessuna password richiesta all'utente: lo
+            # switch in UI è un semplice on/off, coerente con l'interfaccia
+            # esistente.
+            key_bytes = os.urandom(32)
+            key_b64 = base64.b64encode(key_bytes).decode("ascii")
+            if not creds.store_quarantine_key(key_b64):
+                logger.error(
+                    "Impossibile salvare la chiave di cifratura quarantena "
+                    "(secret service non disponibile?) — cifratura non attivata"
+                )
+                GLib.idle_add(self._notify_quarantine_encryption_failed)
+                return
+
+        self._quarantine.set_encryption(key=key_bytes)
+
+    def _notify_quarantine_encryption_failed(self):
+        self._show_toast(
+            "Couldn't enable quarantine encryption — no secret service "
+            "available on this system",
+            Adw.ToastPriority.HIGH,
+        )
+        return False
+
+    def _on_use_clamd_changed(self, switch_row, _pspec):
+        # QA #4: aggiorna la preferenza a runtime, così ha effetto sulla
+        # prossima scansione senza richiedere un riavvio dell'app.
+        self._clamav.prefer_clamd = switch_row.get_active()
+
     def _on_save_vt_key(self, btn):
         key = self._vt_key_row.get_text().strip()
         if not key:
@@ -1306,9 +1449,17 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             self._show_toast("Signatures installed into the system database")
         else:
             logger.error(f"Installazione firme fallita: {output}")
+            # QA #7: il messaggio precedente era hardcoded e suggeriva
+            # SEMPRE la stessa causa ("helper may not be installed"),
+            # anche quando la vera causa (già disponibile in "output" e
+            # già loggata correttamente sulla riga sopra) era tutt'altra
+            # — es. nessuna firma ancora scaricata. Mostriamo la ragione
+            # reale, troncata per restare leggibile in un toast.
+            reason = (output or "unknown error").strip()
+            if len(reason) > 160:
+                reason = reason[:157] + "…"
             self._show_toast(
-                "Installation failed — see logs (helper may not be installed: "
-                "run `sudo clamguard-daemon install-privileged-helper`)",
+                f"Installation failed: {reason}",
                 Adw.ToastPriority.HIGH,
             )
         return False
@@ -1432,6 +1583,12 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._scan_in_progress = False
         self._set_scan_buttons_sensitive(True)
         infected = [r for r in results if r.infected]
+        # QA #2/#5: file troppo grandi o non leggibili non vengono mai
+        # davvero ispezionati da clamscan, ma finora sparivano dai
+        # risultati senza alcuna indicazione per l'utente. Li rendiamo
+        # visibili nel messaggio di fine scansione invece di lasciare che
+        # restino nascosti nel solo dettaglio tecnico dello storico.
+        skipped = [r for r in results if r.skipped]
 
         for r in infected:
             r.compute_hash()
@@ -1443,14 +1600,22 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._refresh_history_view()
         self._refresh_dashboard_stats()
 
+        skipped_suffix = ""
+        if skipped:
+            skipped_suffix = f" ({len(skipped)} skipped — too large or access denied)"
+
         if infected:
             self._show_toast(
-                f"Scan complete: {len(infected)} threat(s) found in {len(results)} file(s)",
+                f"Scan complete: {len(infected)} threat(s) found in "
+                f"{len(results)} file(s){skipped_suffix}",
                 Adw.ToastPriority.HIGH,
             )
             self._prompt_quarantine(infected)
         else:
-            self._show_toast(f"Scan complete: {len(results)} file(s), no threats found")
+            self._show_toast(
+                f"Scan complete: {len(results)} file(s), no threats found"
+                f"{skipped_suffix}"
+            )
 
         return False
 

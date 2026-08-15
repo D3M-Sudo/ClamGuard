@@ -44,3 +44,34 @@ class CredentialsService:
         except Exception as e:  # noqa: BLE001 - libsecret può sollevare vari errori
             logger.error(f"Failed to retrieve key: {e}")
             return ""
+
+    def store_quarantine_key(self, key_b64: str) -> bool:
+        """Salva (base64) la chiave AES-256 usata per cifrare i file in
+        quarantena. QA #3: prima di questo metodo, lo switch "Encrypt
+        quarantined files" non aveva alcun modo di fornire un segreto a
+        QuarantineManager.set_encryption() — la cifratura non veniva mai
+        attivata nonostante il codice AES-GCM fosse già pronto e testato.
+        """
+        try:
+            Secret.password_store_sync(
+                self.SCHEMA,
+                {"api": "quarantine"},
+                Secret.COLLECTION_DEFAULT,
+                "ClamGuard Quarantine Encryption Key",
+                key_b64,
+                None,
+            )
+            return True
+        except Exception as e:  # noqa: BLE001 - libsecret può sollevare vari errori
+            logger.error(f"Failed to store quarantine key: {e}")
+            return False
+
+    def get_quarantine_key(self) -> str:
+        try:
+            return (
+                Secret.password_lookup_sync(self.SCHEMA, {"api": "quarantine"}, None)
+                or ""
+            )
+        except Exception as e:  # noqa: BLE001 - libsecret può sollevare vari errori
+            logger.error(f"Failed to retrieve quarantine key: {e}")
+            return ""
