@@ -28,18 +28,27 @@ class ScanResult:
         infected: bool,
         virus_name: str | None = None,
         error: str | None = None,
+        skipped: bool = False,
     ):
         self.path = path
         self.infected = infected
         self.virus_name = virus_name
         self.error = error
+        # True quando il file non è mai stato realmente ispezionato (es.
+        # dimensione oltre il limite configurato). Va tenuto distinto da
+        # un risultato "pulito" vero e proprio: clamscan stesso, in modalità
+        # normale (non --debug), stampa "<path>: OK" identico sia per un
+        # file davvero scansionato sia per uno scartato per dimensione —
+        # da qui la necessità di intercettare i file troppo grandi PRIMA
+        # di invocare clamscan, per poterli segnalare come tali.
+        self.skipped = skipped
         self.timestamp = datetime.now(timezone.utc)
         # L'hash NON viene più calcolato qui: leggere l'intero file in modo
         # sincrono per ogni risultato (anche quelli puliti) dentro un loop
         # asyncio blocca l'event loop e annulla il vantaggio dell'I/O async.
         # Va calcolato esplicitamente via compute_hash() solo quando serve
         # (es. prima della quarantena di un file infetto).
-        self._hash = None
+        self._hash: str | None = None
 
     def compute_hash(self) -> str | None:
         """Calcola (e mette in cache) lo sha256 del file, se ancora presente."""
@@ -59,6 +68,7 @@ class ScanResult:
             "infected": self.infected,
             "virus_name": self.virus_name,
             "error": self.error,
+            "skipped": self.skipped,
             "timestamp": self.timestamp.isoformat(),
             "hash": self._hash,
         }
@@ -70,18 +80,48 @@ class ClamAVScanner:
     CLAMD_SOCKET = "/run/clamav/clamd.ctl"
     CLAMD_ALT = "/var/run/clamav/clamd.ctl"
 
+    # Limite dimensione file oltre il quale un file viene esplicitamente
+    # saltato (mai passato a clamscan) e segnalato come tale all'utente,
+    # invece di essere silenziosamente riportato "OK" senza mai essere
+    # davvero ispezionato. 2 GiB: alto abbastanza da coprire la stragrande
+    # maggioranza dei file reali di un utente desktop (inclusi video e la
+    # maggior parte delle ISO), pur restando una soglia esplicita e finita.
+    MAX_SCAN_FILE_SIZE = 2 * 1024 * 1024 * 1024  # 2 GiB
+
     def __init__(
         self,
         socket_path: str | None = None,
         extra_db_dirs: list[str] | None = None,
+        prefer_clamd: bool = True,
     ):
         self.socket_path = socket_path or self._find_socket()
-        self._use_clamd = self._detect_clamd()
+        # QA #4 (alto): lo switch "Use clamd daemon" in Settings era
+        # collegato a GSettings ma il valore non veniva mai letto da
+        # nessuna parte del codice — _use_clamd si autodeterminava sempre
+        # via _detect_clamd(), rendendo lo switch puramente decorativo.
+        #
+        # prefer_clamd riflette la scelta esplicita dell'utente. Non
+        # sostituisce però i controlli di sicurezza di _detect_clamd()
+        # (socket realmente presente, permessi corretti, proprietario di
+        # sistema): l'utente può solo DISATTIVARE clamd (forzare
+        # clamscan) anche quando sarebbe disponibile, mai forzarlo ON se
+        # i controlli di sicurezza falliscono — coerente con l'etichetta
+        # in Settings ("Prefer clamd... when available").
+        self.prefer_clamd = prefer_clamd
+        self._clamd_available = self._detect_clamd()
         # Directory con firme di terze parti (ThirdPartyDBManager). Usate
         # solo dal fallback clamscan: clamd carica database extra solo da
         # ExtraDatabase in clamd.conf, non selezionabili per-comando via
         # il protocollo SCAN — vedi nota in third_party_db.py.
         self.extra_db_dirs = extra_db_dirs or []
+
+    @property
+    def _use_clamd(self) -> bool:
+        # Calcolato ad ogni accesso (non cachato) così che un cambio dello
+        # switch "Use clamd daemon" a runtime (window.py aggiorna
+        # self.prefer_clamd su notify::active) abbia effetto immediato
+        # sulla prossima scansione, senza richiedere un riavvio dell'app.
+        return self.prefer_clamd and self._clamd_available
 
     def _find_socket(self) -> str:
         # SICUREZZA: niente /tmp/clamd.socket come fallback. /tmp è
@@ -119,7 +159,7 @@ class ClamAVScanner:
         self,
         scan_paths: list[str],
         progress_callback: Callable[[str, int, int], None] | None = None,
-        chunk_size: int = 100,
+        chunk_size: int = 2000,
     ) -> list[ScanResult]:
         """Scan multiple paths with async I/O and progress reporting."""
         if self._use_clamd:
@@ -162,8 +202,8 @@ class ClamAVScanner:
         (conteggio file, minacce trovate) corrispondono a ciò che è stato
         davvero scansionato — non al numero di cartelle scelte dall'utente.
         """
-        files = await asyncio.to_thread(self._expand_to_files, paths)
-        results = []
+        files = await asyncio.to_thread(self._expand_to_files, scan_paths)
+        results: list[ScanResult] = []
         total = len(files)
 
         if total == 0:
@@ -208,7 +248,7 @@ class ClamAVScanner:
         except (BrokenPipeError, ConnectionResetError) as e:
             logger.error(f"clamd scan connection broken: {e}")
             return await self._scan_clamscan(scan_paths, progress_callback)
-        except (OSError, ValueError) as e:
+        except (OSError, ValueError, TypeError) as e:
             logger.error(f"clamd scan error: {e}")
             # Fallback to clamscan
             return await self._scan_clamscan(scan_paths, progress_callback)
@@ -299,7 +339,7 @@ class ClamAVScanner:
         self,
         scan_paths: list[str],
         progress_callback: Callable | None,
-        chunk_size: int = 100,
+        chunk_size: int = 2000,
     ) -> list[ScanResult]:
         """Fallback async clamscan with chunked execution.
 
@@ -326,12 +366,62 @@ class ClamAVScanner:
         stesso, non di questo codice) — scansionava quindi solo i file
         presenti direttamente nella cartella scelta dall'utente, ignorando
         silenziosamente tutto ciò che si trova più in profondità.
-        """
-        results = []
-        total = len(scan_paths)
 
-        for idx in range(0, total, chunk_size):
-            chunk = scan_paths[idx : idx + chunk_size]
+        NOTA 3: i file vengono espansi ed elencati esplicitamente PRIMA di
+        invocare clamscan, ed ogni file oltre MAX_SCAN_FILE_SIZE viene
+        escluso dall'invocazione e riportato come ScanResult(skipped=True)
+        — clamscan, in modalità normale (non --debug), stampa "<path>: OK"
+        in modo identico sia per un file davvero scansionato sia per uno
+        scartato internamente per dimensione (default clamscan ~200MB):
+        senza questo controllo lato client, un file enorme risulterebbe
+        indistinguibile in UI da uno realmente pulito. Impostiamo comunque
+        anche --max-filesize/--max-scansize espliciti, come difesa in
+        profondità nel caso un archivio si espanda oltre il limite durante
+        la scansione stessa (non intercettabile dal solo controllo sulla
+        dimensione su disco).
+        """
+        all_files = await asyncio.to_thread(self._expand_to_files, scan_paths)
+        results: list[ScanResult] = []
+        total = len(all_files)
+
+        if total == 0:
+            return results
+
+        scannable = []
+        max_mb = self.MAX_SCAN_FILE_SIZE // (1024 * 1024)
+        for f in all_files:
+            try:
+                size = os.path.getsize(f)
+            except OSError:
+                # Il file può essere sparito tra l'enumerazione e questo
+                # controllo, o essere illeggibile: lasciamo che sia
+                # clamscan stesso a riportare l'errore appropriato.
+                scannable.append(f)
+                continue
+            if size > self.MAX_SCAN_FILE_SIZE:
+                results.append(
+                    ScanResult(
+                        f,
+                        False,
+                        skipped=True,
+                        error=(
+                            f"Skipped: file exceeds the {max_mb}MB scan "
+                            f"limit ({size} bytes)"
+                        ),
+                    )
+                )
+            else:
+                scannable.append(f)
+
+        # chunk_size alzato rispetto al default storico: ora che ogni
+        # chunk è una lista di FILE espliciti (non più di cartelle top
+        # level lasciate espandere a clamscan internamente), un chunk
+        # troppo piccolo moltiplicherebbe inutilmente il numero di
+        # invocazioni di clamscan — ognuna delle quali ricarica l'intero
+        # database delle firme da disco, con un costo fisso non
+        # trascurabile per scansioni con molti file (es. System Scan).
+        for idx in range(0, len(scannable), chunk_size):
+            chunk = scannable[idx : idx + chunk_size]
             db_args = []
             for extra_dir in self.extra_db_dirs:
                 # clamscan fallisce l'INTERO comando (nessun file scansionato,
@@ -352,7 +442,14 @@ class ClamAVScanner:
             host_chunk = [paths.to_host_path(p) for p in chunk]
             cmd = (
                 self._build_clamscan_cmd(
-                    ["--recursive", "--no-summary", "--stdout"] + db_args
+                    [
+                        "--recursive",
+                        "--no-summary",
+                        "--stdout",
+                        f"--max-filesize={max_mb}M",
+                        f"--max-scansize={max_mb}M",
+                    ]
+                    + db_args
                 )
                 + ["--"]
                 + host_chunk
@@ -383,12 +480,21 @@ class ClamAVScanner:
             results.extend(chunk_results)
 
             if progress_callback:
-                progress_callback(chunk[-1], min(idx + chunk_size, total), total)
+                progress_callback(
+                    chunk[-1], min(idx + chunk_size, len(scannable)), total
+                )
 
         return results
 
     def _parse_clamscan_output(self, output: str) -> list[ScanResult]:
-        """Parse clamscan --stdout output."""
+        """Parse clamscan --stdout output.
+
+        Oltre a FOUND/OK/ERROR, riconosce esplicitamente "Access denied"
+        (permessi insufficienti sul file) invece di scartare silenziosamente
+        la riga: prima di questo fix, un file non leggibile spariva
+        semplicemente dai risultati, senza alcuna indicazione per l'utente
+        che quel file non era mai stato controllato.
+        """
         results = []
         for line in output.strip().split("\n"):
             if not line:
@@ -400,6 +506,9 @@ class ClamAVScanner:
             elif ": OK" in line:
                 path = line.replace(": OK", "").strip()
                 results.append(ScanResult(path, False))
+            elif "Access denied" in line:
+                path = line.split(":")[0].strip()
+                results.append(ScanResult(path, False, skipped=True, error=line))
             elif "ERROR" in line:
                 path = line.split(":")[0].strip()
                 results.append(ScanResult(path, False, error=line))
