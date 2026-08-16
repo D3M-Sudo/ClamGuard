@@ -125,6 +125,89 @@ class TestQuarantine(unittest.TestCase):
             mode, 0o600, f"Expected database permissions to be 0o600, got {oct(mode)}"
         )
 
+    def test_quarantine_hash_matches_content(self):
+        """CG-001: l'hash SHA-256 memorizzato nel DB deve corrispondere al
+        contenuto reale del file. Prima del fix, hash e dati venivano letti
+        in due passaggi separati (TOCTOU): se il file cambiava tra le due
+        letture, l'hash non corrispondeva ai byte cifrati/copiati."""
+        import hashlib
+
+        content = b"infected content for hash test"
+        testfile = os.path.join(self.tmpdir, "hash_test.txt")
+        with open(testfile, "wb") as f:
+            f.write(content)
+
+        self.assertTrue(self.q.quarantine(testfile, "Test.Virus"))
+        entries = self.q.list_entries()
+        self.assertEqual(len(entries), 1)
+        expected = hashlib.sha256(content).hexdigest()
+        self.assertEqual(entries[0].file_hash, expected)
+
+    def test_quarantine_preserves_original_if_db_insert_fails(self):
+        """CG-002: se l'INSERT nel DB fallisce, il file originale NON deve
+        essere rimosso. Prima del fix, l'unlink avveniva PRIMA dell'insert:
+        un fallimento del DB lasciava il file rimosso dall'originale e la
+        copia in quarantena orfana (non tracciata, irrecuperabile via UI)."""
+        testfile = os.path.join(self.tmpdir, "db_fail.txt")
+        with open(testfile, "w") as f:
+            f.write("infected content")
+
+        # Forza il fallimento dell'INSERT puntando il DB a un path in una
+        # directory inesistente (sqlite3.OperationalError).
+        self.q.db_path = os.path.join(self.tmpdir, "nonexistent_dir", "q.db")
+
+        self.assertFalse(self.q.quarantine(testfile, "Test.Virus"))
+        # L'originale deve essere preservato.
+        self.assertTrue(os.path.exists(testfile))
+        # Nessuna copia orfana residua nella directory di quarantena.
+        leftovers = [
+            f
+            for f in os.listdir(self.tmpdir)
+            if f.startswith(".q_tmp_") or f.endswith(".part")
+        ]
+        self.assertEqual(leftovers, [])
+
+    def test_restore_refuses_to_overwrite_existing(self):
+        """CG-014: restore() non deve sovrascrivere un file esistente alla
+        destinazione. Prima del fix, scriveva sopra qualunque file presente,
+        perdendo dati senza warning."""
+        testfile = os.path.join(self.tmpdir, "collision.txt")
+        with open(testfile, "w") as f:
+            f.write("infected content")
+        self.assertTrue(self.q.quarantine(testfile, "Test.Virus"))
+        entries = self.q.list_entries()
+        self.assertEqual(len(entries), 1)
+
+        # Crea un file alla destinazione di restore.
+        dest = os.path.join(self.tmpdir, "collision_dest.txt")
+        with open(dest, "w") as f:
+            f.write("precious existing data")
+
+        self.assertFalse(self.q.restore(entries[0].id, dest))
+        # Il file esistente non deve essere stato toccato.
+        with open(dest, "r") as f:
+            self.assertEqual(f.read(), "precious existing data")
+
+    def test_encrypted_quarantine_restore_roundtrip(self):
+        """CG-001: con la cifratura attiva, quarantine + restore devono
+        preservare il contenuto originale (hash calcolato sui byte in
+        chiaro, cifrati nello stesso passaggio)."""
+        content = b"secret infected payload"
+        testfile = os.path.join(self.tmpdir, "enc_roundtrip.txt")
+        with open(testfile, "wb") as f:
+            f.write(content)
+
+        self.q.set_encryption(key=b"k" * 32)
+        self.assertTrue(self.q.quarantine(testfile, "Test.Virus"))
+        entries = self.q.list_entries()
+        self.assertEqual(len(entries), 1)
+        self.assertTrue(entries[0].encrypted)
+
+        dest = os.path.join(self.tmpdir, "enc_restored.txt")
+        self.assertTrue(self.q.restore(entries[0].id, dest))
+        with open(dest, "rb") as f:
+            self.assertEqual(f.read(), content)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,6 +24,12 @@ except ImportError:
 
 VT_API_BASE = "https://www.virustotal.com/api/v3"
 
+# CG-009: limite massimo dimensione file per l'upload a VirusTotal.
+# Oltre questa soglia l'upload viene rifiutato PRIMA di leggere il file,
+# evitando di caricare in RAM file enormi (OOM). 650MB è il limite
+# pratico dell'API pubblica di VirusTotal.
+VT_MAX_FILE_SIZE = 650 * 1024 * 1024  # 650 MB
+
 
 class VirusTotalClient:
     """VirusTotal API v3 client with SQLite cache and exponential backoff."""
@@ -56,6 +62,17 @@ class VirusTotalClient:
         if REQUESTS_AVAILABLE and self.api_key:
             self._session = requests.Session()
             self._session.headers.update({"x-apikey": self.api_key})
+            # CG-017: TLS hardening. Usa il bundle CA di certifi per la
+            # verifica dei certificati e ignora le variabili d'ambiente
+            # (trust_env=False) che potrebbero disabilitare la verifica
+            # TLS o iniettare proxy non attendibili.
+            try:
+                import certifi
+
+                self._session.verify = certifi.where()
+            except ImportError:
+                logger.debug("certifi not installed; using system CA store")
+            self._session.trust_env = False
 
     def _init_cache(self):
         with sqlite3.connect(self.cache_db) as conn:
@@ -74,6 +91,48 @@ class VirusTotalClient:
         if elapsed < self._min_interval:
             time.sleep(self._min_interval - elapsed)
         self._last_request = time.time()
+
+    def _make_request(
+        self, method: str, url: str, **kwargs
+    ) -> "requests.Response | None":
+        """Esegue una richiesta HTTP con retry esponenziale.
+
+        CG-008: prima del fix non c'era alcun retry su 503/timeout,
+        nonostante il docstring della classe dichiarasse "exponential
+        backoff". Ora: 3 retry con backoff 2→4→8s su HTTP 503 e timeout.
+        Ritorna la Response, o None se la richiesta fallisce definitivamente.
+        """
+        if not self._session:
+            return None
+        retries = 3
+        backoff = 2.0
+        for attempt in range(retries + 1):
+            try:
+                resp = self._session.request(method, url, **kwargs)
+                if resp.status_code == 503 and attempt < retries:
+                    logger.warning(
+                        f"VT 503 (attempt {attempt + 1}/{retries + 1}), "
+                        f"retrying in {backoff}s"
+                    )
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                return resp
+            except requests.exceptions.Timeout as e:
+                if attempt < retries:
+                    logger.warning(
+                        f"VT timeout (attempt {attempt + 1}/{retries + 1}), "
+                        f"retrying in {backoff}s"
+                    )
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                logger.error(f"VirusTotal request timed out: {e}")
+                return None
+            except requests.exceptions.ConnectionError as e:
+                logger.error(f"VirusTotal connection failed: {e}")
+                return None
+        return None
 
     def lookup_file(self, file_path: str, force_refresh: bool = False) -> dict | None:
         """Lookup file by SHA-256 hash with cache."""
@@ -98,10 +157,12 @@ class VirusTotalClient:
 
         # API request
         self._rate_limit()
+        resp = self._make_request(
+            "GET", f"{VT_API_BASE}/files/{file_hash}", timeout=(5, 15)
+        )
+        if resp is None:
+            return None
         try:
-            resp = self._session.get(
-                f"{VT_API_BASE}/files/{file_hash}", timeout=(5, 15)
-            )
             resp.raise_for_status()
             data = resp.json().get("data", {})
 
@@ -154,14 +215,34 @@ class VirusTotalClient:
         """Upload file for analysis, return analysis ID."""
         if not self._session:
             return None
+
+        # CG-009: rifiuta l'upload PRIMA di leggere il file se supera il
+        # limite di dimensione, evitando di caricare in RAM file enormi.
+        try:
+            size = os.path.getsize(file_path)
+        except OSError as e:
+            logger.error(f"VT upload: cannot stat {file_path}: {e}")
+            return None
+        if size > VT_MAX_FILE_SIZE:
+            logger.error(
+                f"VT upload refused: {file_path} is {size} bytes, "
+                f"exceeds the {VT_MAX_FILE_SIZE // (1024 * 1024)}MB limit"
+            )
+            return None
+
         self._rate_limit()
         try:
+            # Streaming: passiamo l'oggetto file a requests (che lo legge
+            # a chunk), invece di f.read() che carica l'intero file in RAM.
             with open(file_path, "rb") as f:
-                resp = self._session.post(
+                resp = self._make_request(
+                    "POST",
                     f"{VT_API_BASE}/files",
-                    files={"file": (os.path.basename(file_path), f.read())},
+                    files={"file": (os.path.basename(file_path), f)},
                     timeout=(5, 30),
                 )
+            if resp is None:
+                return None
             resp.raise_for_status()
             return resp.json().get("data", {}).get("id")
         except requests.exceptions.HTTPError as e:

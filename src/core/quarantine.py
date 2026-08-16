@@ -7,6 +7,7 @@ import hashlib
 import logging
 import os
 import sqlite3
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -211,7 +212,20 @@ class QuarantineManager:
             self._cipher = None
 
     def quarantine(self, file_path: str, virus_name: str | None = None) -> bool:
-        """Move file to quarantine with optional encryption."""
+        """Move file to quarantine with optional encryption.
+
+        SICUREZZA (CG-001/CG-002): il file viene letto UNA SOLA volta in un
+        unico passaggio — l'hash SHA-256 è calcolato sugli stessi byte che
+        vengono cifrati/copiati in quarantena, eliminando il TOCTOU tra due
+        letture separate (prima l'hash, poi i dati). L'ordine delle
+        operazioni è: scrittura copia in quarantena (temp + rename atomico)
+        → INSERT nel DB → solo DOPO l'unlink dell'originale. Se l'INSERT
+        fallisce, la copia temp viene rimossa e il file originale resta
+        intatto (nessuna perdita dati).
+        """
+        tmp_path = None
+        q_path = None
+        inserted = False
         try:
             src = Path(file_path)
             if not src.exists():
@@ -224,32 +238,39 @@ class QuarantineManager:
                 )
                 return False
 
-            file_hash = paths.compute_file_hash(src)
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             q_filename = f"{timestamp}_{src.name}"
             q_path = os.path.join(self.quarantine_dir, q_filename)
+            # Evita collisioni di nome (due file con lo stesso nome
+            # quarantinati nello stesso secondo): non sovrascrivere mai.
+            counter = 1
+            while os.path.exists(q_path):
+                q_filename = f"{timestamp}_{counter}_{src.name}"
+                q_path = os.path.join(self.quarantine_dir, q_filename)
+                counter += 1
 
-            if self._cipher:
-                self._cipher.encrypt_file(src, Path(q_path))
-                encrypted = True
-            else:
-                with open(src, "rb") as f_in, open(q_path, "wb") as f_out:
-                    while True:
-                        chunk = f_in.read(65536)
-                        if not chunk:
-                            break
-                        f_out.write(chunk)
-                encrypted = False
+            # Scrittura atomica: temp nella STESSA directory di quarantena,
+            # così l'os.replace() finale è atomico (stesso filesystem).
+            fd, tmp_path = tempfile.mkstemp(
+                prefix=".q_tmp_", suffix=".part", dir=self.quarantine_dir
+            )
+            os.close(fd)
+
+            # Lettura singola: hash + cifratura/copia nello stesso passaggio.
+            file_hash = self._write_quarantine_copy(src, Path(tmp_path))
 
             # Sola lettura per il proprietario: isola il file (non scrivibile,
             # non eseguibile) senza impedirne la lettura in fase di restore.
             # La directory di quarantena è già 0o700, quindi resta comunque
             # inaccessibile ad altri utenti.
-            os.chmod(q_path, 0o400)
+            os.chmod(tmp_path, 0o400)
 
-            # Remove original
-            src.unlink()
+            # Rename atomico temp → destinazione finale.
+            os.replace(tmp_path, q_path)
+            tmp_path = None  # non più necessario pulirlo
 
+            # INSERT nel DB PRIMA dell'unlink dell'originale: se fallisce,
+            # l'originale non è mai stato toccato.
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.execute(
                     "INSERT INTO quarantine VALUES (NULL, ?, ?, ?, ?, ?, ?, 0)",
@@ -259,16 +280,64 @@ class QuarantineManager:
                         file_hash,
                         virus_name,
                         datetime.now(timezone.utc).timestamp(),
-                        int(encrypted),
+                        int(self._cipher is not None),
                     ),
                 )
                 entry_id = cursor.lastrowid
+                inserted = True
+
+            # Solo ora rimuoviamo l'originale.
+            src.unlink()
 
             logger.info(f"Quarantined {file_path} as ID {entry_id}")
             return True
         except (OSError, ValueError, sqlite3.Error) as e:
             logger.error(f"Quarantine failed: {e}")
+            # Pulizia mirata: l'originale non è mai stato toccato in nessuno
+            # dei casi di fallimento.
+            # - tmp_path: fallimento prima del rename (scrittura copia).
+            # - q_path: fallimento DOPO il rename ma PRIMA dell'INSERT
+            #   riuscito (es. INSERT fallito) → copia orfana da rimuovere.
+            # Se invece l'INSERT è riuscito ma l'unlink dell'originale è
+            # fallito, q_path NON va rimosso: il DB lo referenzia.
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+            if not inserted and q_path and os.path.exists(q_path):
+                try:
+                    os.unlink(q_path)
+                except OSError:
+                    pass
             return False
+
+    def _write_quarantine_copy(self, src: Path, dst: Path) -> str:
+        """Copia src in dst calcolando l'hash SHA-256 in un'unica lettura.
+
+        Se la cifratura è attiva, scrive in formato chunked AES-256-GCM
+        (stesso formato di AESGCMCipher.encrypt_file). Ritorna l'hash
+        SHA-256 dei byte in chiaro letti.
+        """
+        import struct
+
+        sha256 = hashlib.sha256()
+        with open(src, "rb") as f_in, open(dst, "wb") as f_out:
+            while True:
+                chunk = f_in.read(65536)
+                if not chunk:
+                    break
+                sha256.update(chunk)
+                if self._cipher:
+                    blob = self._cipher.encrypt(chunk)  # nonce(12) + ciphertext
+                    nonce = blob[:12]
+                    ciphertext = blob[12:]
+                    f_out.write(struct.pack(">I", len(ciphertext)))
+                    f_out.write(nonce)
+                    f_out.write(ciphertext)
+                else:
+                    f_out.write(chunk)
+        return sha256.hexdigest()
 
     def restore(self, entry_id: int, destination: str | None = None) -> bool:
         """Restore file from quarantine after integrity check."""
@@ -295,6 +364,16 @@ class QuarantineManager:
                 if dest_path.is_symlink() or os.path.islink(str(dest_path)):
                     logger.error(
                         f"Restore target is a symbolic link: {dest_path}. Aborting to prevent symlink traversal."
+                    )
+                    return False
+
+                # CG-014: non sovrascrivere MAI un file esistente alla
+                # destinazione di restore. Prima del fix, restore() scriveva
+                # sopra qualunque file presente, perdendo dati senza warning.
+                if dest_path.exists():
+                    logger.error(
+                        f"Restore target already exists: {dest_path}. "
+                        "Refusing to overwrite."
                     )
                     return False
 

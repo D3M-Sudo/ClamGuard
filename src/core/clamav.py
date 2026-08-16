@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import paths
+from .path_validator import validate_path
 from .paths import compute_file_hash
 
 logger = logging.getLogger("clamguard.clamav")
@@ -180,14 +181,21 @@ class ClamAVScanner:
         """
         files = []
         for p in paths:
+            # CG-005: validazione del path di input prima di qualsiasi
+            # operazione. Prima del fix, _expand_to_files accettava
+            # qualsiasi stringa, inclusi symlink a file sensibili (es.
+            # /etc/shadow) o path con traversal. I path non validi vengono
+            # saltati con un warning, non passati allo scanner.
+            valid, reason = validate_path(p)
+            if not valid:
+                logger.warning(f"Skipping invalid scan path {p}: {reason}")
+                continue
             if os.path.isdir(p):
                 for root, _dirs, filenames in os.walk(p, followlinks=False):
                     for name in filenames:
                         files.append(os.path.join(root, name))
             elif os.path.isfile(p):
                 files.append(p)
-            # Path inesistenti o non file/dir vengono ignorati silenziosamente
-            # qui; non è compito dello scanner validare l'input dell'utente.
         return files
 
     async def _scan_clamd(

@@ -132,12 +132,11 @@ class TestScanClamscanCountsCleanFiles(unittest.TestCase):
             captured_cmd["cmd"] = args
             return FakeProc()
 
-        with tempfile.NamedTemporaryFile() as f:
-            with patch(
-                "asyncio.create_subprocess_exec",
-                side_effect=fake_create_subprocess_exec,
-            ):
-                asyncio.run(scanner._scan_clamscan([f.name], None))
+        with tempfile.NamedTemporaryFile() as f, patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=fake_create_subprocess_exec,
+        ):
+            asyncio.run(scanner._scan_clamscan([f.name], None))
 
         self.assertNotIn("--infected", captured_cmd["cmd"])
 
@@ -214,12 +213,11 @@ class TestScanClamscanIsRecursive(unittest.TestCase):
             captured_cmd["cmd"] = args
             return FakeProc()
 
-        with tempfile.NamedTemporaryFile() as f:
-            with patch(
-                "asyncio.create_subprocess_exec",
-                side_effect=fake_create_subprocess_exec,
-            ):
-                asyncio.run(scanner._scan_clamscan([f.name], None))
+        with tempfile.NamedTemporaryFile() as f, patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=fake_create_subprocess_exec,
+        ):
+            asyncio.run(scanner._scan_clamscan([f.name], None))
 
         self.assertIn("--recursive", captured_cmd["cmd"])
 
@@ -412,12 +410,11 @@ class TestScanClamscanSkipsOversizedFiles(unittest.TestCase):
             captured_cmd["cmd"] = args
             return FakeProc()
 
-        with tempfile.NamedTemporaryFile() as f:
-            with patch(
-                "asyncio.create_subprocess_exec",
-                side_effect=fake_create_subprocess_exec,
-            ):
-                asyncio.run(scanner._scan_clamscan([f.name], None))
+        with tempfile.NamedTemporaryFile() as f, patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=fake_create_subprocess_exec,
+        ):
+            asyncio.run(scanner._scan_clamscan([f.name], None))
 
         max_mb = scanner.MAX_SCAN_FILE_SIZE // (1024 * 1024)
         self.assertIn(f"--max-filesize={max_mb}M", captured_cmd["cmd"])
@@ -444,6 +441,38 @@ class TestParseClamscanAccessDenied(unittest.TestCase):
         self.assertEqual(len(denied), 1)
         self.assertTrue(denied[0].skipped)
         self.assertIn("Access denied", denied[0].error)
+
+
+class TestPathValidation(unittest.TestCase):
+    """CG-005: _expand_to_files deve validare i path di input prima di
+    qualsiasi operazione. Prima del fix accettava qualsiasi stringa,
+    inclusi symlink a file sensibili (es. /etc/shadow) o path con
+    traversal."""
+
+    def test_symlink_to_sensitive_path_is_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            link = os.path.join(d, "shadow_link")
+            os.symlink("/etc/shadow", link)
+            files = ClamAVScanner._expand_to_files([link])
+            self.assertEqual(files, [])
+
+    def test_path_traversal_is_rejected(self):
+        files = ClamAVScanner._expand_to_files(["/tmp/../etc/shadow"])
+        self.assertEqual(files, [])
+
+    def test_relative_path_is_rejected(self):
+        files = ClamAVScanner._expand_to_files(["relative/path"])
+        self.assertEqual(files, [])
+
+    def test_nonexistent_path_is_rejected(self):
+        files = ClamAVScanner._expand_to_files(["/nonexistent/definitely/not/here"])
+        self.assertEqual(files, [])
+
+    def test_valid_directory_is_accepted(self):
+        with tempfile.TemporaryDirectory() as d:
+            open(os.path.join(d, "a.txt"), "w").close()
+            files = ClamAVScanner._expand_to_files([d])
+            self.assertEqual(files, [os.path.join(d, "a.txt")])
 
 
 class TestPreferClamdSetting(unittest.TestCase):
