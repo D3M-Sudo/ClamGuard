@@ -37,3 +37,7 @@ Thumbs.db
 # Misc
 docs/reports/
 *.log
+
+# i18n build artifacts (rigenerati da meson, non vanno versionati)
+po/*.pot
+po/*.mo

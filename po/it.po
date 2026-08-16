@@ -2,25 +2,42 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: clamguard 0.1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-16 14:09+0000\n"
+"PO-Revision-Date: 2026-08-16 14:09+0000\n"
+"Last-Translator: D3M-Sudo\n"
+"Language-Team: Italian\n"
 "Language: it\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-msgid "Scan"
-msgstr "Scansiona"
+#: data/io.github.d3msudo.clamguard.desktop.in:3
+msgid "ClamGuard"
+msgstr "ClamGuard"
 
-msgid "Quarantine"
-msgstr "Quarantena"
+#: data/io.github.d3msudo.clamguard.desktop.in:4
+msgid "Modern ClamAV Security Suite"
+msgstr "Suite di sicurezza ClamAV moderna"
 
-msgid "History"
-msgstr "Cronologia"
+#: data/io.github.d3msudo.clamguard.desktop.in:9
+msgid "antivirus;clamav;security;scan;virus;malware;"
+msgstr "antivirus;clamav;sicurezza;scansione;virus;malware;"
 
-msgid "VirusTotal"
-msgstr "VirusTotal"
+#~ msgid "Scan"
+#~ msgstr "Scansiona"
 
-msgid "Database"
-msgstr "Database"
+#~ msgid "Quarantine"
+#~ msgstr "Quarantena"
 
-msgid "Settings"
-msgstr "Impostazioni"
+#~ msgid "History"
+#~ msgstr "Cronologia"
+
+#~ msgid "VirusTotal"
+#~ msgstr "VirusTotal"
+
+#~ msgid "Database"
+#~ msgstr "Database"
+
+#~ msgid "Settings"
+#~ msgstr "Impostazioni"
