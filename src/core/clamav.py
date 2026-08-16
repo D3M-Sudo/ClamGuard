@@ -94,8 +94,13 @@ class ClamAVScanner:
         socket_path: str | None = None,
         extra_db_dirs: list[str] | None = None,
         prefer_clamd: bool = True,
+        clamd_timeout: float = 300.0,
     ):
         self.socket_path = socket_path or self._find_socket()
+        # CG-006: timeout per la risposta clamd, configurabile. Prima del
+        # fix era fisso a 300s, senza possibilità di adattarlo a file
+        # particolarmente lenti o a sistemi con clamd sotto carico.
+        self.clamd_timeout = clamd_timeout
         # QA #4 (alto): lo switch "Use clamd daemon" in Settings era
         # collegato a GSettings ma il valore non veniva mai letto da
         # nessuna parte del codice — _use_clamd si autodeterminava sempre
@@ -226,7 +231,9 @@ class ClamAVScanner:
                 writer.write(cmd)
                 await writer.drain()
 
-                response = await asyncio.wait_for(reader.readline(), timeout=300)
+                response = await asyncio.wait_for(
+                    reader.readline(), timeout=self.clamd_timeout
+                )
                 decoded = response.decode().strip()
                 result = self._parse_clamd_response(path, decoded)
 
@@ -297,7 +304,9 @@ class ClamAVScanner:
             writer.write(struct.pack(">I", 0))
             await writer.drain()
 
-            response = await asyncio.wait_for(reader.readline(), timeout=300)
+            response = await asyncio.wait_for(
+                reader.readline(), timeout=self.clamd_timeout
+            )
             decoded = response.decode().strip()
             # Parse the INSTREAM response (e.g., "stream: OK" or "stream: <virus> FOUND")
             # For the parse function, the format usually is "stream: <status>", so we map it back
@@ -324,7 +333,10 @@ class ClamAVScanner:
     def _parse_clamd_response(self, path: str, response: str) -> ScanResult:
         """Parse clamd STREAM/SCAN output."""
         if "FOUND" in response:
-            parts = response.split(":")
+            # CG-015: rsplit(":", 1) invece di split(":") — un path può
+            # contenere ":" (es. C:\... o path con colonne), e split(":")
+            # produrrebbe più di 2 parti, rompendo l'estrazione del virus.
+            parts = response.rsplit(":", 1)
             virus = parts[-1].replace("FOUND", "").strip()
             return ScanResult(path, True, virus_name=virus)
         elif "OK" in response:
@@ -515,10 +527,12 @@ class ClamAVScanner:
                 path = line.replace(": OK", "").strip()
                 results.append(ScanResult(path, False))
             elif "Access denied" in line:
-                path = line.split(":")[0].strip()
+                # CG-015: rsplit(":", 1) invece di split(":")[0] — un path
+                # può contenere ":" e split(":")[0] troncherebbe il path.
+                path = line.rsplit(":", 1)[0].strip()
                 results.append(ScanResult(path, False, skipped=True, error=line))
             elif "ERROR" in line:
-                path = line.split(":")[0].strip()
+                path = line.rsplit(":", 1)[0].strip()
                 results.append(ScanResult(path, False, error=line))
         return results
 

@@ -1,7 +1,7 @@
 # ClamGuard — Fix Tracker
 
 > **Scopo:** tracciare tutti i fix derivati dalla code review (`clamguard_review_report.md`), il loro stato e le affermazioni del report risultate inaccurate sul codice attuale.
-> **Sessione corrente:** Priorità 1–2 (sicurezza + hardening VirusTotal). Fix mirati, senza refactoring architetturale.
+> **Sessione corrente:** Priorità 1–3 (sicurezza, hardening VirusTotal, robustezza scanner). Fix mirati, senza refactoring architetturale.
 
 ---
 
@@ -35,8 +35,8 @@
 
 | ID | Modulo | Problema | Stato |
 |----|--------|----------|-------|
-| CG-006 | `core/clamav.py` | Timeout clamd 300s fisso, senza streaming/progress. | 🔲 |
-| CG-015 | `core/clamav.py` | Parsing `split(":")` fragile su path con `:`. | 🔲 |
+| CG-006 | `core/clamav.py` | Timeout clamd 300s fisso, senza streaming/progress. | ✅ |
+| CG-015 | `core/clamav.py` | Parsing `split(":")` fragile su path con `:`. | ✅ |
 | — | `window.py` | **Refactoring `ScanController`:** estrarre la logica business (scan, quarantena, history) da `window.py` in un `core/scan_controller.py`. `window.py` deve solo ricevere eventi e aggiornare la UI. | 🔲 |
 
 ## Priorità 4 — Feature / Qualità
@@ -71,4 +71,4 @@ Queste voci del report `clamguard_review_report.md` sono risultate **inaccurate*
 
 - **Approccio:** fix mirati, adattati all'architettura asyncio già presente in ClamGuard. Spunti da ClamUI solo dove utile.
 - **Refactoring `ScanController`:** suggerito dal report (Priorità 3) ma **fuori scope** in questa sessione per scelta dell'utente. Tracciato sopra come backlog.
-- **Test:** i fix alle Priorità 1–2 aggiornano `tests/test_quarantine.py`, `tests/test_virustotal.py`, `tests/test_clamav_parser.py`.
+- **Test:** i fix alle Priorità 1–3 aggiornano `tests/test_quarantine.py`, `tests/test_virustotal.py`, `tests/test_clamav_parser.py`.

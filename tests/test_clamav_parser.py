@@ -475,6 +475,90 @@ class TestPathValidation(unittest.TestCase):
             self.assertEqual(files, [os.path.join(d, "a.txt")])
 
 
+class TestParseClamdColonPath(unittest.TestCase):
+    """CG-015: il parsing dell'output clamd/clamscan non deve rompersi su
+    path contenenti ':' (es. C:\\... o path con colonne). Prima del fix,
+    split(":") produceva più di 2 parti, troncando il path o estraendo un
+    virus name errato."""
+
+    def test_parse_clamd_response_with_colon_in_path(self):
+        scanner = ClamAVScanner()
+        r = scanner._parse_clamd_response(
+            "C:\\Users\\test\\file.exe",
+            "C:\\Users\\test\\file.exe: Eicar-Test-Signature FOUND",
+        )
+        self.assertTrue(r.infected)
+        self.assertEqual(r.virus_name, "Eicar-Test-Signature")
+
+    def test_parse_clamscan_access_denied_with_colon_in_path(self):
+        scanner = ClamAVScanner()
+        output = "C:\\Users\\test\\noperm.exe: Access denied\n"
+        results = scanner._parse_clamscan_output(output)
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0].skipped)
+        self.assertEqual(results[0].path, "C:\\Users\\test\\noperm.exe")
+
+    def test_parse_clamscan_error_with_colon_in_path(self):
+        scanner = ClamAVScanner()
+        output = "C:\\Users\\test\\bad.exe: ERROR\n"
+        results = scanner._parse_clamscan_output(output)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].path, "C:\\Users\\test\\bad.exe")
+
+
+class TestClamdTimeoutConfigurable(unittest.TestCase):
+    """CG-006: il timeout per la risposta clamd deve essere configurabile
+    via costruttore, non fisso a 300s."""
+
+    def test_clamd_timeout_default(self):
+        scanner = ClamAVScanner()
+        self.assertEqual(scanner.clamd_timeout, 300.0)
+
+    def test_clamd_timeout_is_configurable(self):
+        scanner = ClamAVScanner(clamd_timeout=120.0)
+        self.assertEqual(scanner.clamd_timeout, 120.0)
+
+    def test_clamd_timeout_used_in_instream(self):
+        """Verifica che _scan_file_instream usi self.clamd_timeout per la
+        readline (non un valore fisso)."""
+        scanner = ClamAVScanner(clamd_timeout=42.0)
+        captured = {}
+
+        reader = AsyncMock()
+        reader.readline.side_effect = [b"stream: OK\n"]
+        writer = MagicMock()
+        writer.write = MagicMock()
+        writer.drain = AsyncMock()
+        writer.close = MagicMock()
+        writer.wait_closed = AsyncMock()
+
+        async def fake_open_unix_connection(_path):
+            return reader, writer
+
+        async def fake_wait_for(coro, timeout):
+            captured["timeout"] = timeout
+            return await coro
+
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(b"x")
+            temp_path = f.name
+
+        try:
+            with (
+                patch(
+                    "asyncio.open_unix_connection",
+                    side_effect=fake_open_unix_connection,
+                ),
+                patch("asyncio.wait_for", side_effect=fake_wait_for),
+            ):
+                asyncio.run(scanner._scan_file_instream(temp_path))
+        finally:
+            os.unlink(temp_path)
+
+        # L'ultima wait_for (readline) deve usare il timeout configurato.
+        self.assertEqual(captured["timeout"], 42.0)
+
+
 class TestPreferClamdSetting(unittest.TestCase):
     """QA #4 (alto): lo switch 'Use clamd daemon' in Settings era
     collegato a GSettings ma il valore non veniva mai letto da nessuna
