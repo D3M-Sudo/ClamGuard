@@ -1,8 +1,2 @@
 data/io.github.d3msudo.clamguard.desktop.in
 src/window.py
-src/ui/views/scanner_view.py
-src/ui/views/quarantine_view.py
-src/ui/views/history_view.py
-src/ui/views/virustotal_view.py
-src/ui/views/database_view.py
-src/ui/views/settings_view.py
