@@ -44,18 +44,27 @@ def not_path_traversal(path: str) -> bool:
     return ".." not in Path(path).parts
 
 
-def not_symlink_to_sensitive(path: str) -> bool:
-    """Il path non deve essere un symlink che punta a un path sensibile."""
-    if not os.path.islink(path):
-        return True
+def not_sensitive_path(path: str) -> bool:
+    """Il path non deve essere un path sensibile né un symlink a un path sensibile."""
     try:
         resolved = os.path.realpath(path)
     except OSError:
-        return False
+        resolved = path
+
     for sensitive in SENSITIVE_PATHS:
-        if resolved == sensitive or resolved.startswith(sensitive + os.sep):
+        if (
+            path == sensitive
+            or path.startswith(sensitive + os.sep)
+            or resolved == sensitive
+            or resolved.startswith(sensitive + os.sep)
+        ):
             return False
     return True
+
+
+def not_symlink_to_sensitive(path: str) -> bool:
+    """Funzione di compatibilità: verifica che il path non sia sensibile."""
+    return not_sensitive_path(path)
 
 
 def validate_path(path: str) -> tuple[bool, str | None]:
@@ -69,6 +78,6 @@ def validate_path(path: str) -> tuple[bool, str | None]:
         return False, f"Path inesistente o non leggibile: {path}"
     if not not_path_traversal(path):
         return False, f"Path traversal non ammesso: {path}"
-    if not not_symlink_to_sensitive(path):
-        return False, f"Symlink a path sensibile non ammesso: {path}"
+    if not not_sensitive_path(path):
+        return False, f"Path sensibile non ammesso: {path}"
     return True, None
