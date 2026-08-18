@@ -17,3 +17,9 @@ test('third_party', test_clamav,
 test('virustotal', test_clamav,
      args: ['-m', 'unittest', 'discover', '-s', test_src, '-p', 'test_virustotal.py'],
      workdir: test_workdir)
+test('eicar', test_clamav,
+     args: ['-m', 'unittest', 'discover', '-s', test_src, '-p', 'test_eicar.py'],
+     workdir: test_workdir)
+test('tray_manager', test_clamav,
+     args: ['-m', 'unittest', 'discover', '-s', test_src, '-p', 'test_tray_manager.py'],
+     workdir: test_workdir)

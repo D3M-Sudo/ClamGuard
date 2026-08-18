@@ -208,6 +208,85 @@ class TestQuarantine(unittest.TestCase):
         with open(dest, "rb") as f:
             self.assertEqual(f.read(), content)
 
+    def test_quota_limits_number_of_entries(self):
+        """CG-012: con max_entries=N, quarantinare N+1 file deve eliminare
+        le entry più vecchie finché non si rientra nel limite."""
+        q = QuarantineManager(
+            quarantine_dir=self.tmpdir,
+            db_path=os.path.join(self.tmpdir, "quota_entries.db"),
+            max_entries=3,
+            max_total_size=0,  # disabilita il limite di dimensione
+        )
+        for i in range(5):
+            testfile = os.path.join(self.tmpdir, f"quota_{i}.txt")
+            with open(testfile, "w") as f:
+                f.write(f"infected content {i}")
+            self.assertTrue(q.quarantine(testfile, "Test.Virus"))
+
+        entries = q.list_entries()
+        self.assertEqual(len(entries), 3)
+        # Le entry più vecchie (0, 1) devono essere state rimosse.
+        remaining_names = {os.path.basename(e.original_path) for e in entries}
+        self.assertNotIn("quota_0.txt", remaining_names)
+        self.assertNotIn("quota_1.txt", remaining_names)
+        self.assertIn("quota_4.txt", remaining_names)
+
+    def test_quota_limits_total_size(self):
+        """CG-012: con max_total_size piccolo, quarantinare file che
+        superano la quota deve eliminare le entry più vecchie."""
+        q = QuarantineManager(
+            quarantine_dir=self.tmpdir,
+            db_path=os.path.join(self.tmpdir, "quota_size.db"),
+            max_entries=0,  # disabilita il limite di numero
+            max_total_size=100,  # 100 byte totali
+        )
+        for i in range(4):
+            testfile = os.path.join(self.tmpdir, f"size_{i}.txt")
+            with open(testfile, "wb") as f:
+                f.write(b"x" * 50)  # 50 byte ciascuno
+            self.assertTrue(q.quarantine(testfile, "Test.Virus"))
+
+        entries = q.list_entries()
+        # 4 file da 50 byte = 200 byte > 100 → devono restare al massimo 2.
+        self.assertLessEqual(len(entries), 2)
+        # Le entry più vecchie devono essere state rimosse.
+        remaining_names = {os.path.basename(e.original_path) for e in entries}
+        self.assertNotIn("size_0.txt", remaining_names)
+
+    def test_quota_does_not_touch_restored_entries(self):
+        """CG-012: la rotazione non deve mai eliminare entry con restored=1."""
+        q = QuarantineManager(
+            quarantine_dir=self.tmpdir,
+            db_path=os.path.join(self.tmpdir, "quota_restored.db"),
+            max_entries=2,
+            max_total_size=0,
+        )
+        # Quarantina e ripristina il primo file (restored=1).
+        testfile = os.path.join(self.tmpdir, "restored.txt")
+        with open(testfile, "w") as f:
+            f.write("infected content")
+        self.assertTrue(q.quarantine(testfile, "Test.Virus"))
+        entries = q.list_entries()
+        self.assertTrue(q.restore(entries[0].id, os.path.join(self.tmpdir, "restored_out.txt")))
+
+        # Quarantina altri 3 file → la quota (2) deve rimuovere solo le
+        # entry attive più vecchie, mai quella restored.
+        for i in range(3):
+            f = os.path.join(self.tmpdir, f"active_{i}.txt")
+            with open(f, "w") as fh:
+                fh.write(f"infected {i}")
+            self.assertTrue(q.quarantine(f, "Test.Virus"))
+
+        # La entry restored deve ancora esistere nel DB.
+        import sqlite3
+        with sqlite3.connect(q.db_path) as conn:
+            restored_count = conn.execute(
+                "SELECT COUNT(*) FROM quarantine WHERE restored=1"
+            ).fetchone()[0]
+        self.assertEqual(restored_count, 1)
+        # Le entry attive devono essere al massimo 2.
+        self.assertLessEqual(len(q.list_entries()), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

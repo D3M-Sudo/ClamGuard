@@ -18,6 +18,11 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from .core.clamav import ClamAVScanner
+from .core.eicar_helper import (
+    cleanup_eicar_path,
+    create_eicar_temp,
+    register_eicar_atexit_cleanup,
+)
 from .core.history import HistoryManager
 from .core.quarantine import QuarantineManager
 from .core.third_party_db import ThirdPartyDBManager
@@ -36,7 +41,12 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self.set_default_size(1100, 780)
 
         self._settings = Gio.Settings.new("io.github.d3msudo.clamguard")
-        self._quarantine = QuarantineManager()
+        # CG-012: la quota di rotazione della quarantena è configurabile
+        # via GSettings (quarantine-max-entries). Un valore <= 0 disabilita
+        # la rotazione per numero di entry.
+        self._quarantine = QuarantineManager(
+            max_entries=self._settings.get_int("quarantine-max-entries")
+        )
         # QA #3 (alto): lo switch "Encrypt quarantined files" (esposto sia
         # in Preferences sia nella card "Safe Files" della Dashboard,
         # entrambe collegate alla stessa chiave GSettings) non chiamava
@@ -58,6 +68,13 @@ class ClamGuardWindow(Adw.ApplicationWindow):
         self._polkit = PolkitHelper()
         self._scan_in_progress = False
         self._active_tab = "dashboard"
+
+        # CG-018: stato del file temp EICAR per il self-test. Il path viene
+        # popolato da _on_eicar_test e pulito in _on_scan_complete; la
+        # safety net atexit garantisce che un file stantio non sopravviva
+        # mai all'uscita del processo (crash/force-quit).
+        self._eicar_temp_path = ""
+        self._eicar_atexit_unregister = lambda: None
 
         # Initialize Recommendations List
         self._recommendations = [
@@ -383,9 +400,21 @@ class ClamGuardWindow(Adw.ApplicationWindow):
             "drive-harddisk-symbolic",
             self._on_system_scan,
         )
+        # CG-018: card "EICAR Test" — permette all'utente finale di
+        # verificare che il motore di scansione rilevi correttamente le
+        # minacce, usando il pattern antivirus standard EICAR (sicuro,
+        # non funzionale). Il file temp viene creato, scansionato e
+        # pulito automaticamente.
+        eicar_card = self._build_dashboard_scan_card(
+            "EICAR Test",
+            "Self-test",
+            "security-low-symbolic",
+            self._on_eicar_test,
+        )
 
         scan_grid.append(quick_card)
         scan_grid.append(system_card)
+        scan_grid.append(eicar_card)
         content.append(scan_grid)
 
         # Bottom row grid (Stats, Safe Files, Web Protection) — stesso
@@ -1472,6 +1501,42 @@ class ClamGuardWindow(Adw.ApplicationWindow):
     def _on_system_scan(self, btn):
         self.start_scan(["/"])
 
+    def _on_eicar_test(self, btn):
+        """CG-018: crea un file temp EICAR e lo scansiona per verificare
+        che il motore rilevi correttamente le minacce. Il file viene
+        pulito al completamento della scansione (e via atexit come safety
+        net su crash/force-quit)."""
+        if self._scan_in_progress:
+            self._show_toast("A scan is already in progress")
+            return
+
+        try:
+            # In Flatpak il file va in una directory persistita del sandbox
+            # (~/.cache/clamguard), così clamscan eseguito sull'host via
+            # flatpak-spawn può accedervi. In esecuzione nativa usa /tmp.
+            from .core.paths import is_flatpak_sandbox
+
+            if is_flatpak_sandbox():
+                cache_dir = os.path.join(
+                    os.path.expanduser("~"), ".cache", "clamguard"
+                )
+                os.makedirs(cache_dir, exist_ok=True)
+                parent_dir = cache_dir
+            else:
+                parent_dir = None
+
+            self._eicar_temp_path = create_eicar_temp(parent_dir=parent_dir)
+            self._eicar_atexit_unregister = register_eicar_atexit_cleanup(
+                self._eicar_temp_path
+            )
+            self._show_toast("Running EICAR self-test...")
+            self.start_scan([self._eicar_temp_path])
+        except OSError as e:
+            logger.error(f"Failed to create EICAR test file: {e}")
+            self._show_toast(
+                f"Failed to create EICAR test file: {e}", Adw.ToastPriority.HIGH
+            )
+
     def _on_custom_scan(self, btn):
         dialog = Gtk.FileDialog()
         dialog.set_title("Select files or folders to scan")
@@ -1582,6 +1647,14 @@ class ClamGuardWindow(Adw.ApplicationWindow):
     def _on_scan_complete(self, results, scan_id):
         self._scan_in_progress = False
         self._set_scan_buttons_sensitive(True)
+
+        # CG-018: pulizia del file temp EICAR dopo la scansione (se era un
+        # self-test). La safety net atexit resta come fallback su crash.
+        if self._eicar_temp_path:
+            cleanup_eicar_path(self._eicar_temp_path)
+            self._eicar_temp_path = ""
+            self._eicar_atexit_unregister()
+
         infected = [r for r in results if r.infected]
         # QA #2/#5: file troppo grandi o non leggibili non vengono mai
         # davvero ispezionati da clamscan, ma finora sparivano dai

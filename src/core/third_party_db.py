@@ -45,7 +45,21 @@ class SignatureProvider:
 
 
 class ThirdPartyDBManager:
-    """Manages third-party signature databases with atomic updates."""
+    """Manages third-party signature databases with atomic updates.
+
+    NOTA SICUREZZA (CG-013): la verifica GPG completa delle firme di
+    terze parti NON è implementata perché la maggior parte dei provider
+    (urlhaus, twinclams, ditekshen, ...) non pubblica firme ``.asc`` —
+    solo il feed sanesecurity le rilascia. In assenza di una firma
+    crittografica, la mitigatione applicata è: (1) validazione dello
+    schema URL (solo http/https, niente file://), (2) limite di
+    dimensione per provider, (3) hash SHA-256 registrato nel DB, e
+    (4) test di integrità funzionale con clamscan PRIMA dell'attivazione
+    (_test_signature). Questa combinazione impedisce l'attivazione di
+    firme corrotte, non di firme malevole modificate da un attacco
+    man-in-the-middle; per chiudere quella classe di attacco serve la
+    verifica GPG, tracciata nel backlog.
+    """
 
     DEFAULT_PROVIDERS: ClassVar[list[SignatureProvider]] = [
         SignatureProvider(

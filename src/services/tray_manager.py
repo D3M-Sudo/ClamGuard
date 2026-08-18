@@ -12,6 +12,7 @@ widget/segnali va fatta direttamente dal thread reader).
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -54,12 +55,52 @@ class TrayManager:
             os.path.dirname(os.path.abspath(__file__)), "tray_service.py"
         )
 
+    def _resolve_interpreter(self) -> str | None:
+        """CG-016: risolve l'interprete Python da usare per il subprocesso.
+
+        In esecuzione nativa e dentro il sandbox Flatpak, ``sys.executable``
+        è l'interprete del processo corrente (il runtime GTK) e va usato:
+        tray_service.py è parte dello stesso pacchetto ed è progettato per
+        girare nello stesso ambiente. Il rischio segnalato dal report era
+        che ``sys.executable`` potesse differire in Flatpak (es. puntare a
+        un binario di solo testo non eseguibile); in pratica l'interprete
+        del sandbox è quello giusto, ma rendiamo la risoluzione robusta:
+        se ``sys.executable`` non è eseguibile (edge case), degradiamo a
+        ``python3`` dal PATH invece di fallire.
+        """
+        candidate = sys.executable
+        if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+        # Fallback: python3 dal PATH (ambiente venv/container senza binario).
+        fallback = shutil.which("python3")
+        if fallback:
+            return fallback
+        return None
+
     def start(self):
         if self._running:
             return
+
+        service_path = self._get_service_path()
+        interpreter = self._resolve_interpreter()
+
+        if not service_path or not os.path.isfile(service_path):
+            logger.error(
+                f"tray_service.py non trovato: {service_path!r} — tray disabilitato"
+            )
+            self._tray_down = True
+            return
+        if not interpreter:
+            logger.error(
+                "Nessun interprete Python disponibile (sys.executable e "
+                "python3 entrambi mancanti) — tray disabilitato"
+            )
+            self._tray_down = True
+            return
+
         try:
             self._process = subprocess.Popen(
-                [sys.executable, self._get_service_path()],
+                [interpreter, service_path],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

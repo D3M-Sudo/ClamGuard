@@ -43,10 +43,17 @@
 
 | ID | Modulo | Problema | Stato |
 |----|--------|----------|-------|
-| CG-012 | `core/quarantine.py` | Nessuna rotazione/quota quarantena (crescita indefinita disco). | 🔲 |
-| CG-013 | `core/third_party_db.py` | Nessuna verifica GPG firme terze parti (mitigata parzialmente da `_test_signature` via clamscan). | 🔲 |
-| CG-016 | `services/tray_manager.py` | `sys.executable` nel subprocess potrebbe differire in Flatpak. | 🔲 |
-| CG-018 | `tests/` | Nessun test EICAR end-to-end. | 🔲 |
+| CG-012 | `core/quarantine.py` | Nessuna rotazione/quota quarantena (crescita indefinita disco). | ✅ |
+| CG-013 | `core/third_party_db.py` | Nessuna verifica GPG firme terze parti (mitigata da `_test_signature` via clamscan + docs). | ✅ (parziale — mitigazione documentata) |
+| CG-016 | `services/tray_manager.py` | `sys.executable` nel subprocess potrebbe differire in Flatpak. | ✅ |
+| CG-018 | `tests/` | Nessun test EICAR end-to-end. | ✅ |
+
+### Note di dettaglio Priorità 4
+
+- **CG-012:** `QuarantineManager` ora accetta `max_entries` (default 100) e `max_total_size` (default 500 MB). Dopo ogni quarantena riuscita viene applicata una rotazione best-effort che elimina le entry attive più vecchie finché non si rientra nella quota. Nuova chiave GSettings `quarantine-max-entries` (collegata da `window.py`). Le entry con `restored=1` non vengono mai toccate. Test: `tests/test_quarantine.py` (quota numero, quota dimensione, restored intoccate).
+- **CG-013 (parziale):** verifica GPG completa non realizzabile per tutti i provider (solo sanesecurity pubblica firme `.asc`). Mitigazione documentata in `third_party_db.py` (schema URL, max size, hash SHA-256, test funzionale clamscan pre-attivazione). Backlog per verifica GPG opzionale sui provider che la supportano.
+- **CG-016:** `TrayManager._resolve_interpreter()` usa `sys.executable` se eseguibile, altrimenti degrada a `python3` dal PATH; `start()` verifica che `tray_service.py` esista prima dello spawn e logga errori chiari. Test: `tests/test_tray_manager.py`.
+- **CG-018:** bottone "EICAR Test" nella dashboard (card accanto a Quick/System Scan) che crea un file temp EICAR, lo scansiona e lo pulisce al completamento (con safety net `atexit` su crash/force-quit). Helper GTK-free in `core/eicar_helper.py`. Test: `tests/test_eicar.py` (unitari helper + end-to-end con clamscan reale, skippati se ClamAV assente).
 
 ---
 

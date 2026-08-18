@@ -133,10 +133,21 @@ class QuarantineEntry:
 class QuarantineManager:
     """Manages quarantined files with integrity verification and optional encryption."""
 
-    def __init__(self, quarantine_dir: str | None = None, db_path: str | None = None):
+    def __init__(
+        self,
+        quarantine_dir: str | None = None,
+        db_path: str | None = None,
+        max_entries: int = 100,
+        max_total_size: int = 500 * 1024 * 1024,
+    ):
         self.quarantine_dir = quarantine_dir or paths.app_data_dir("quarantine")
         self.db_path = db_path or paths.app_data_dir("quarantine.db")
         self._cipher = None
+        # CG-012: quota di rotazione. max_entries limita il numero di entry
+        # attive, max_total_size la dimensione totale occupata su disco.
+        # Valori <= 0 disabilitano il rispettivo limite.
+        self.max_entries = max_entries
+        self.max_total_size = max_total_size
         os.makedirs(self.quarantine_dir, mode=0o700, exist_ok=True)
         try:
             os.chmod(self.quarantine_dir, 0o700)
@@ -290,6 +301,14 @@ class QuarantineManager:
             src.unlink()
 
             logger.info(f"Quarantined {file_path} as ID {entry_id}")
+
+            # CG-012: applica la quota di rotazione (best-effort). Se la
+            # pulizia fallisce, la quarantena corrente NON deve fallire.
+            try:
+                self._enforce_quota()
+            except (OSError, ValueError, sqlite3.Error) as e:
+                logger.warning(f"Quota enforcement failed: {e}")
+
             return True
         except (OSError, ValueError, sqlite3.Error) as e:
             logger.error(f"Quarantine failed: {e}")
@@ -453,3 +472,64 @@ class QuarantineManager:
                     )
                 )
         return entries
+
+    def _enforce_quota(self) -> None:
+        """CG-012: applica la quota di rotazione sulla quarantena.
+
+        Elimina le entry attive più vecchie (per timestamp) finché non si
+        rientra sia nel limite di numero entry (max_entries) sia nel limite
+        di dimensione totale (max_total_size). Un limite <= 0 disabilita il
+        rispettivo vincolo. Le entry con restored=1 non vengono mai toccate.
+        """
+        if self.max_entries <= 0 and self.max_total_size <= 0:
+            return
+
+        with sqlite3.connect(self.db_path) as conn:
+            # Entry attive ordinate dalla più vecchia alla più recente.
+            rows = conn.execute(
+                "SELECT id, quarantine_path FROM quarantine "
+                "WHERE restored=0 ORDER BY timestamp ASC"
+            ).fetchall()
+
+            # Calcola la dimensione totale corrente delle entry attive.
+            total_size = 0
+            for _, q_path in rows:
+                try:
+                    total_size += os.path.getsize(q_path)
+                except OSError:
+                    pass
+
+            # Itera per indice: la lista rows viene accorciata man mano che
+            # le entry più vecchie vengono eliminate.
+            idx = 0
+            while idx < len(rows):
+                entry_id, q_path = rows[idx]
+                over_entries = (
+                    self.max_entries > 0 and len(rows) > self.max_entries
+                )
+                over_size = (
+                    self.max_total_size > 0 and total_size > self.max_total_size
+                )
+                if not over_entries and not over_size:
+                    break
+
+                # Dimensione della entry PRIMA dell'unlink (dopo l'unlink
+                # os.path.getsize fallirebbe con OSError).
+                try:
+                    entry_size = os.path.getsize(q_path)
+                except OSError:
+                    entry_size = 0
+
+                # Elimina la entry più vecchia (file + riga DB).
+                try:
+                    if os.path.exists(q_path):
+                        os.unlink(q_path)
+                    conn.execute("DELETE FROM quarantine WHERE id=?", (entry_id,))
+                    total_size -= entry_size
+                    rows = rows[1:]
+                    logger.info(
+                        f"Quarantine quota: removed entry {entry_id} ({q_path})"
+                    )
+                except OSError as e:
+                    logger.warning(f"Quota: could not remove entry {entry_id}: {e}")
+                    rows = rows[1:]

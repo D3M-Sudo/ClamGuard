@@ -25,6 +25,10 @@
       <default>false</default>
       <summary>Encrypt quarantined files</summary>
     </key>
+    <key name="quarantine-max-entries" type="i">
+      <default>100</default>
+      <summary>Maximum number of quarantined files before rotation</summary>
+    </key>
     <key name="virustotal-enabled" type="b">
       <default>false</default>
       <summary>Enable VirusTotal integration</summary>
