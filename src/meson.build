@@ -17,6 +17,14 @@ core_files = files(
   'core/quarantine.py',
   'core/history.py',
   'core/virustotal.py',
+  'core/eicar_helper.py',
+)
+
+# CG-013: chiave pubblica GPG bundled di sanesecurity. Installata come
+# risorsa del pacchetto (canale di distribuzione separato dal feed), così
+# la verifica GPG delle firme .sig può avvenire anche in Flatpak.
+core_resources_files = files(
+  'core/resources/sanesecurity.gpg',
 )
 
 daemon_files = files(
@@ -61,6 +69,7 @@ ui_widgets_files = files(
 
 install_data(src_files, install_dir: python_installation.get_install_dir() / 'clamguard')
 install_data(core_files, install_dir: python_installation.get_install_dir() / 'clamguard/core')
+install_data(core_resources_files, install_dir: python_installation.get_install_dir() / 'clamguard/core/resources')
 install_data(daemon_files, install_dir: python_installation.get_install_dir() / 'clamguard/daemon')
 install_data(cli_files, install_dir: python_installation.get_install_dir() / 'clamguard/cli')
 install_data(cli_resources_files, install_dir: python_installation.get_install_dir() / 'clamguard/cli/resources')
